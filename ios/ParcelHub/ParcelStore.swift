@@ -6,10 +6,12 @@ final class ParcelStore: ObservableObject {
     @Published private(set) var providers: [PickupProvider] = []
     @Published private(set) var parcels: [Parcel] = []
     @Published var storageWarning: String?
+    @Published private(set) var stationCredentials: [String: String] = [:]
 
     private let defaults = UserDefaults.standard
     private let parcelKey = "parcelhub.parcels.v1"
     private let providerKey = "parcelhub.providers.v1"
+    private let stationCredentialKey = "parcelhub.station-credentials.v1"
 
     init() {
         do {
@@ -22,10 +24,15 @@ final class ParcelStore: ObservableObject {
             }
             if let saved = defaults.data(forKey: parcelKey) {
                 parcels = try JSONDecoder().decode([Parcel].self, from: saved)
+                // 旧版以菜鸟命名的读取器实际使用淘宝网页，只迁移官方来源记录。
+                for index in parcels.indices where parcels[index].source == "cainiao-web" {
+                    parcels[index].providerID = "taobao"
+                }
             } else {
                 parcels = []
                 persistParcels()
             }
+            stationCredentials = defaults.dictionary(forKey: stationCredentialKey) as? [String: String] ?? [:]
         } catch {
             storageWarning = "本地数据读取失败，暂不覆盖原记录。请保留现有数据并反馈问题。"
         }
@@ -34,33 +41,23 @@ final class ParcelStore: ObservableObject {
     func provider(_ id: String) -> PickupProvider? { providers.first { $0.id == id } }
     // 隐藏旧演示记录，但保留存储，不删除用户原有数据。
     var pending: [Parcel] { parcels.filter { !$0.isDemo && !$0.isCollected && $0.inLatestOfficialSnapshot != false } }
-    var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected && $0.inLatestOfficialSnapshot != false } }
+    var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected } }
+
+    func rememberCredential(_ providerID: String, for station: String) {
+        guard provider(providerID) != nil, !station.isEmpty else { return }
+        stationCredentials[station] = providerID
+        defaults.set(stationCredentials, forKey: stationCredentialKey)
+    }
 
     func importOfficial(_ snapshot: OfficialPageRead) -> String? {
         guard storageWarning == nil else { return "本地数据异常，暂不更新" }
-        guard snapshot.state == "ready", snapshot.expectedCount == snapshot.parcels.count else { return snapshot.message }
-        let now = Date()
-        for index in parcels.indices where parcels[index].source == "cainiao-web" {
-            parcels[index].inLatestOfficialSnapshot = false
+        do {
+            parcels = try OfficialSnapshotMerge.applying(snapshot, to: parcels)
+            persistParcels()
+            return storageWarning
+        } catch {
+            return error.localizedDescription
         }
-        for row in snapshot.parcels {
-            let index = parcels.firstIndex {
-                !$0.isDemo && $0.carrier == row.carrier && $0.trackingNumber.caseInsensitiveCompare(row.trackingNumber) == .orderedSame
-            }
-            var parcel = index.map { parcels[$0] } ?? Parcel(id: UUID(), title: row.title, providerID: "cainiao", station: row.station,
-                                                           pickupCode: row.pickupCode, carrier: row.carrier, trackingNumber: row.trackingNumber,
-                                                           addedAt: now, isDemo: false)
-            parcel.providerID = "cainiao"
-            parcel.station = row.station
-            parcel.pickupCode = row.pickupCode
-            parcel.collectedAt = nil
-            parcel.source = "cainiao-web"
-            parcel.inLatestOfficialSnapshot = true
-            parcel.lastReadAt = now
-            if let index { parcels[index] = parcel } else { parcels.insert(parcel, at: 0) }
-        }
-        persistParcels()
-        return nil
     }
 
     func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String) -> String? {
@@ -93,7 +90,7 @@ final class ParcelStore: ObservableObject {
         guard !clean.isEmpty, !search.isEmpty else { return "请填写平台名称和微信搜索词" }
         guard clean.count <= 20, search.count <= 40 else { return "平台名称或搜索词过长" }
         guard !providers.contains(where: { $0.name.caseInsensitiveCompare(clean) == .orderedSame }) else { return "这个平台已经存在" }
-        providers.append(PickupProvider(id: "custom-\(UUID().uuidString)", name: clean, shortName: String(clean.prefix(1)), color: "#479981",
+        providers.append(PickupProvider(id: "custom-\(UUID().uuidString)", name: clean, shortName: String(clean.prefix(1)), color: "#2867D8",
                                         symbol: "square.stack.3d.up.fill", miniProgramName: search, website: "", kind: "自定义平台", featured: false))
         do {
             let custom = providers.filter { $0.id.hasPrefix("custom-") }

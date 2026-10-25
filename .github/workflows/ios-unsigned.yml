@@ -15,6 +15,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Verify native snapshot synchronization
+        run: |
+          swiftc ios/ParcelHub/ParcelRecords.swift ios/ParcelHub/OfficialSnapshotMerge.swift tests/OfficialSnapshotTests.swift -o /tmp/parcelhub-snapshot-tests
+          /tmp/parcelhub-snapshot-tests
+      - name: Verify official page reader
+        run: node --test tests/model.test.mjs tests/official-reader.test.mjs
       - name: Build for iPhone without credentials
         run: >-
           xcodebuild -project ios/ParcelHub.xcodeproj

@@ -1,54 +1,46 @@
-# 拾件 ParcelHub · 官方网页读取验证版
+# 拾件 ParcelHub
 
-目标：个人自用，不读取到站短信；读取本人登录后的官方待取件页面，直接显示官方身份码。
+个人自用的 iOS 取件助手。不依赖到站短信，读取本人登录后的官方待取件网页，并展示对应平台的官方身份码。
 
-## 本轮实际验证（2026-10-25）
+## 0.3.0
 
-- 用户自行登录后，淘宝官方身份码页真实显示已认证的取件条形码。
-- 官方待取件页首次提示接口超时，重新加载后显示 2 件真实包裹。
-- 项目同一份 shared/cainiao-reader.js 在该实际页面运行，返回 ready，读取数量与页面数量均为 2。
-- 读取取件码、快递公司、运单号与站点，不保存收件人姓名、手机号、身份码或登录凭证。
-- 尚未在驿站扫码出库，也未验证全部购买平台、家庭号码与末端系统覆盖。
+- 蓝白界面，原生页面跟随系统深色模式；官方条形码页面保留浅色，避免影响扫码。
+- 搜索框随清单滚动，不固定在导航栏；待取记录在左、身份码在右。
+- 身份码页采用全屏原生容器，移除常驻地址栏和浏览器链接，保留菜单中的刷新与备用浏览器入口。
+- 官方待取记录加载后尝试同步；点击读取按钮会先刷新页面，再读取最新内容。明确空清单会移除淘宝来源旧待取记录，不删除手动或其他平台记录。网络错误、未登录、占位零和不完整卡片不会覆盖记录。
+- 淘宝、菜鸟、京东快递等入口分别保留，可按取件地点记住常用身份码。旧版误标“菜鸟”的官方网页入口现更正为“淘宝”。
 
-## Windows 现在可体验
+## 能力与限制
 
-双击「打开预览.cmd」，或访问正在运行的 http://127.0.0.1:8765/preview/ 。
+用户已在 0.2.0 iPhone 版本确认淘宝网页登录、身份码显示及待取件读取可用。0.3.0 的视觉和真机行为需要安装新版后再次验收，不能用旧版反馈代替新版验证。
 
-首页可直接打开官方身份码和待取件网页。不同浏览器需要在对应官方页面分别登录。
+仅淘宝网页已接入 App 内身份码展示与清单读取。菜鸟自身身份码、京东快递、丰巢、驿收发等暂提供微信搜索/打开指引，没有接通这些平台的动态码或自动汇总。不会把淘宝码当成其他平台身份码，也不会根据快递公司自动猜测驿站支持的凭证。
 
-预览显示本次验证读取的真实快照，并标注来源、读取时间；它不是持续后台同步。旧演示记录已隐藏但未删除，手动记录保留。
+现场微信小程序码可能携带站点信息，需按现场说明用微信扫一扫。当前没有核实京东身份码直达链接、移动应用 SDK 注册配置及站点参数，不能承诺一键打开指定小程序页面。普通二维码读取器不能直接解析微信小程序码。
 
-快照仅放在本机 .private/official-snapshot.json，已加入 .gitignore，不属于源码或测试样例。浏览器副本保存在本机 localStorage，不上传服务器。关闭预览窗口可停止本机服务。
+取件状态不会在后台实时刷新；请打开待取记录同步。官方记录不再出现时只移出待取清单，不据此伪造“已取件”历史。身份码由官方网页生成和刷新，不复制、缓存或重画条形码。
 
-## 原生 iOS 使用流程
+## Windows 编译与安装
 
-在 Mac 上用 Xcode 打开 ios/ParcelHub.xcodeproj，运行 ParcelHub scheme：
+打开 GitHub 仓库 Actions，手动运行 Build iPhone test package (unsigned)，分支选择 main。流程先运行 JS 与原生 Swift 数据同步检查，再编译并上传 ParcelHub-unsigned-iphone，产物保留 3 天。
 
-1. 打开「菜鸟官方身份码 / 待取件」。
-2. 在 App 内官方网页完成登录。WebKit 会话与 Windows 浏览器独立，需分别登录。
-3. 身份码页直接显示官方网页，不复制、缓存或重画条形码。
-4. 切换到待取件，加载完成后尝试读取；也可点击「读取当前待取件到拾件」。
-5. 完整读取后返回清单，按快递公司和运单号合并，保留取件码前导零。
+使用 iLoader 的 Import IPA 给自己的 iPhone 签名安装。更新时沿用之前的账号和 Bundle ID 设置，尽量覆盖安装；不要先删除旧 App，以免清除本地记录。免费签名需要定期续签，安装工具和 Apple 账号验证由用户自行完成。
 
-页面超时、登录失效、结构变化或数量不符时保留原记录，不显示成零件。本次官方清单不再出现的记录只移出当前快照，不伪造已取状态。
+## 本地检查与预览
 
-**iOS 工程未在 Mac 编译、未在 iPhone 实测、未生成 IPA。浏览器通过不等于真机通过。** 真机运行前需要选择自己的开发团队，修改默认 Bundle Identifier com.example.ParcelHub。
+运行 node --test tests/model.test.mjs tests/official-reader.test.mjs 。
 
-## 尚未完成
+Mac 原生数据检查：
 
-- 驿收发、丰巢等其他平台的登录、包裹读取和凭证。
-- Windows 预览持续自动刷新官方页面的运行机制。
-- iPhone 登录、读取、身份码刷新与驿站扫码的完整测试。
-- 页面分页、多个号码及跨来源重复场景的扩展验证。
+```sh
+swiftc ios/ParcelHub/ParcelRecords.swift ios/ParcelHub/OfficialSnapshotMerge.swift tests/OfficialSnapshotTests.swift -o /tmp/parcelhub-snapshot-tests
+/tmp/parcelhub-snapshot-tests
+```
 
-## 检查
+Windows 双击 打开预览.cmd，或运行 python preview_server.py。浏览器预览使用本机读取快照，不会从浏览器跨域自动获取官方账号的最新包裹。浏览器与 iOS 的登录和本地记录分别保存。网页预览样式尚未与 0.3.0 原生界面完全同步。
 
-运行 node --test tests/model.test.mjs tests/official-reader.test.mjs ，当前 13 项通过。测试均为虚构数据，无实际取件码或运单号。
+## 数据与来源
 
-Mac 编译：xcodebuild -project ios/ParcelHub.xcodeproj -scheme ParcelHub -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+.private/ 保存仅本机的真实快照，已忽略，不上传到 GitHub。测试使用虚构包裹，不包含真实姓名、手机号、取件码或运单。App 使用 WebKit 的持久会话完成官方登录，不提取或上传 Cookie、密码和登录令牌。
 
-## 文件与复用边界
-
-ios/ 为 SwiftUI / WebKit 工程；shared/catalog.json 为平台目录；shared/cainiao-reader.js 为可见页面读取组件；preview/ 为 Windows 预览；.private/ 为仅本机快照。
-
-原先参考的 PickTool、BiuLand、fluwx 与 ExpressAssistant 只提供架构思路，未复制其源码或品牌素材。当前使用官方网页正常登录与可见页面读取，不调用逆向接口，也不绕过验证码、权限或访问控制。
+原先参考 PickTool、BiuLand、fluwx 与 ExpressAssistant 的架构思路，未复制其源码或品牌素材。当前不调用逆向接口，不绕过验证码、权限或访问控制。

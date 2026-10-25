@@ -55,7 +55,7 @@ export function addProvider(state, input, providers) {
 
 export function filterParcels(state, providers, { collected = false, providerID = 'all', search = '' } = {}) {
   const term = search.trim().toLocaleLowerCase();
-  return state.parcels.filter(p => Boolean(p.collectedAt) === collected && (providerID === 'all' || p.providerID === providerID) &&
+  return state.parcels.filter(p => Boolean(p.collectedAt) === collected && (collected || p.inLatestOfficialSnapshot !== false) && (providerID === 'all' || p.providerID === providerID) &&
     (!term || [p.title, p.station, p.pickupCode, p.trackingNumber, p.carrier, providers.find(s => s.id === p.providerID)?.name || '']
       .join(' ').toLocaleLowerCase().includes(term)));
 }
@@ -85,19 +85,19 @@ export function mergeOfficialSnapshot(state, snapshot) {
   }
   const rows = snapshot.parcels;
   for (const row of rows) {
-    if (row.providerID !== 'cainiao' || !['title', 'station', 'pickupCode', 'carrier', 'trackingNumber'].every(k => typeof row[k] === 'string' && row[k].trim())) {
+    if (!['taobao', 'cainiao'].includes(row.providerID) || !['title', 'station', 'pickupCode', 'carrier', 'trackingNumber'].every(k => typeof row[k] === 'string' && row[k].trim())) {
       throw new Error('官方记录缺少必要字段，未更新');
     }
   }
   const keys = rows.map(p => `${p.carrier}:${p.trackingNumber.toUpperCase()}`);
   if (new Set(keys).size !== keys.length) throw new Error('官方记录出现重复，未更新');
-  const parcels = state.parcels.map(p => p.source === 'cainiao-web' ? { ...p, inLatestOfficialSnapshot: false } : { ...p });
+  const parcels = state.parcels.map(p => ['cainiao-web', 'taobao-web'].includes(p.source) ? { ...p, inLatestOfficialSnapshot: false } : { ...p });
   for (const row of rows) {
-    const index = parcels.findIndex(p => !p.isDemo && same(p.carrier, row.carrier) && same(p.trackingNumber, row.trackingNumber));
+    const index = parcels.findIndex(p => !p.isDemo && ['taobao', 'cainiao'].includes(p.providerID) && same(p.carrier, row.carrier) && same(p.trackingNumber, row.trackingNumber));
     const previous = index >= 0 ? parcels[index] : null;
     const incoming = { ...previous, ...row, id: previous?.id || crypto.randomUUID(),
       addedAt: previous?.addedAt || snapshot.readAt, collectedAt: null, isDemo: false,
-      source: 'cainiao-web', lastReadAt: snapshot.readAt, inLatestOfficialSnapshot: true };
+      providerID: 'taobao', source: 'taobao-web', lastReadAt: snapshot.readAt, inLatestOfficialSnapshot: true };
     if (index >= 0) parcels[index] = incoming;
     else parcels.unshift(incoming);
   }

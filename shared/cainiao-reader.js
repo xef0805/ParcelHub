@@ -3,23 +3,36 @@
   const result = (state, message, parcels = [], expectedCount = null) => ({
     state, message, parcels, expectedCount, readAt: new Date().toISOString()
   });
-  if (lines.some(line => /接口超时|网络异常|服务开小差|访问受限|请完成验证/.test(line))) {
+  if (lines.some(line => /接口超时|请求超时|网络异常|网络错误|服务开小差|系统繁忙|访问受限|请完成验证/.test(line))) {
     return result('error', '官方页面返回错误或验证要求，原有记录保持不变');
   }
-  if (lines.some(line => /您需要登录|请先登录|账号密码登录/.test(line))) {
+  if (lines.some(line => /您需要登录|请先登录|账号密码登录|登录已失效|登录过期/.test(line))) {
     return result('login_required', '请先在官方页面完成登录');
   }
-  const start = lines.indexOf('待取件');
-  if (start < 0 || !/^\d+$/.test(lines[start + 1] || '')) {
+  if (lines.some(line => /^(加载中|正在加载|正在刷新)[.。…]*$/.test(line))) {
+    return result('loading', '官方清单仍在加载，保留原有记录');
+  }
+  const start = lines.findIndex(line => /^待取件(?:\s*[（(]\s*\d+\s*[）)])?$/.test(line));
+  if (start < 0) {
     return result('loading', '页面尚未显示完整的待取件数量，请等待后重试');
   }
-  const expectedCount = Number(lines[start + 1]);
+  const end = lines.findIndex((line, index) => index > start && /^还有包裹未显示/.test(line));
+  const section = lines.slice(start + 1, end < 0 ? undefined : end);
+  // 空状态文案可能替代数字角标；仅接受明确完整的空清单提示，空白页面不能清空。
+  const emptyPattern = /^(?:(?:暂无|暂时没有|还没有|你还没有|您还没有|没有)待取(?:件|包裹)(?:包裹)?(?:啦|了|哦)?|(?:包裹已)?全部取完(?:了)?|包裹都取完啦)[！!。~～]*$/;
+  const explicitlyEmpty = section.some(line => emptyPattern.test(line));
+  const inlineCount = lines[start].match(/[（(]\s*(\d+)\s*[）)]/);
+  const displayedCount = inlineCount ? Number(inlineCount[1]) : /^\d+$/.test(lines[start + 1] || '') ? Number(lines[start + 1]) : null;
+  if (displayedCount === null && !explicitlyEmpty) {
+    return result('loading', '页面数量或空状态尚未加载完整，请等待后重试');
+  }
+  if (displayedCount > 0 && explicitlyEmpty) return result('error', '页面数量与空状态不一致，保留原有记录');
+  const expectedCount = displayedCount ?? 0;
   if (expectedCount > 100) return result('error', '页面数量超出当前验证范围，暂不导入');
-  if (expectedCount === 0 && !lines.some(line => /暂无待取|没有待取|全部取完/.test(line))) {
+  if (expectedCount === 0 && !explicitlyEmpty) {
     return result('loading', '尚未确认官方空清单，保留原有记录');
   }
-  const end = lines.findIndex((line, index) => index > start && /^还有包裹未显示/.test(line));
-  const content = lines.slice(start + 2, end < 0 ? undefined : end);
+  const content = section;
   const codePattern = /^(?:取件码\s*[:：]?\s*)?([A-Za-z0-9]{1,4}-[A-Za-z0-9]{1,4}-[A-Za-z0-9]{1,12})$/;
   const carrierPattern = /^(圆通(?:速递)?|韵达(?:快递)?|中通(?:快递)?|申通(?:快递)?|顺丰(?:速运)?|极兔(?:速递)?|邮政(?:快递)?|EMS|京东(?:物流)?|德邦(?:快递)?|菜鸟速递|百世(?:快递)?|天天(?:快递)?)\s+([A-Za-z0-9]{6,40})$/i;
   const entries = [];

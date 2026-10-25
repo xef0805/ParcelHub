@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { mergeOfficialSnapshot, demoState } from '../preview/model.mjs';
+import { mergeOfficialSnapshot, demoState, filterParcels } from '../preview/model.mjs';
 
 const source = await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8');
 const read = vm.runInNewContext(source);
@@ -43,15 +43,58 @@ test('官方读取可合并已有手动记录，保留原记录标识和前导�
   const merged = mergeOfficialSnapshot(original, snapshot);
   assert.equal(merged.parcels.length, 2);
   assert.equal(merged.parcels.find(p => p.id === 'existing').pickupCode, '01-2-0001');
-  assert.equal(merged.parcels.every(p => p.source === 'cainiao-web'), true);
+  assert.equal(merged.parcels.every(p => p.source === 'taobao-web' && p.providerID === 'taobao'), true);
   assert.equal(original.parcels[0].pickupCode, 'old');
 });
 test('本次清单不再出现的记录只移出当前快照，不伪造已取状态', () => {
   const first = mergeOfficialSnapshot(demoState(), JSON.parse(JSON.stringify(read(page))));
   const empty = JSON.parse(JSON.stringify(read('待取件\n0\n暂无待取包裹\n还有包裹未显示？查询取件码')));
   const next = mergeOfficialSnapshot(first, empty);
-  const official = next.parcels.filter(p => p.source === 'cainiao-web');
+  const official = next.parcels.filter(p => p.source === 'taobao-web');
   assert.equal(official.length, 2);
   assert.equal(official.every(p => p.inLatestOfficialSnapshot === false && p.collectedAt === null), true);
   assert.throws(() => mergeOfficialSnapshot(first, { state: 'error' }), /未完整读取/);
+});
+
+test('无数字角标的明确空状态也能移除旧待取清单', () => {
+  const first = mergeOfficialSnapshot({ version: 1, parcels: [], customProviders: [] }, JSON.parse(JSON.stringify(read(page))));
+  const empty = JSON.parse(JSON.stringify(read('身份码\n待取件\n追踪中\n已签收\n你还没有待取包裹哦\n还有包裹未显示？查询取件码')));
+  assert.equal(empty.state, 'ready');
+  assert.equal(empty.expectedCount, 0);
+  assert.equal(filterParcels(mergeOfficialSnapshot(first, empty), []).length, 0);
+});
+
+test('占位零、空白、加载、登录过期及区域外广告空文案不清空', () => {
+  for (const text of ['', '待取件\n0', '待取件\n0\n暂无待取包裹\n加载中',
+    '待取件\n0\n暂无待取包裹\n登录已失效', '待取件\n0\n暂无待取包裹\n请求超时',
+    '待取件\n0\n还有包裹未显示？查询取件码\n暂无待取包裹', '待取件\n1\n暂无待取包裹']) {
+    assert.notEqual(read(text).state, 'ready', text);
+  }
+});
+
+test('支持待取件括号数量，空提示与残留卡片冲突时拒绝清空', () => {
+  assert.equal(read(page.replace('待取件\n2', '待取件（2）')).parcels.length, 2);
+  assert.equal(read(page.replace('待取件\n2', '待取件\n0\n暂无待取包裹')).state, 'error');
+});
+
+test('空快照只处理该官方来源，保留手动与其他来源和已取历史', () => {
+  const first = mergeOfficialSnapshot({ version: 1, parcels: [], customProviders: [] }, JSON.parse(JSON.stringify(read(page))));
+  const manual = { ...first.parcels[0], id: 'manual', providerID: 'fcbox', source: 'manual' };
+  const jd = { ...first.parcels[0], id: 'jd', providerID: 'jd', source: 'jd-web' };
+  first.parcels[0].collectedAt = '2026-10-25T00:00:00Z';
+  first.parcels.push(manual, jd);
+  const empty = JSON.parse(JSON.stringify(read('待取件\n0\n暂无待取件')));
+  const next = mergeOfficialSnapshot(first, empty);
+  assert.deepEqual(filterParcels(next, []).map(p => p.id).sort(), ['jd', 'manual']);
+  assert.equal(filterParcels(next, [], { collected: true }).length, 1);
+  assert.equal(first.parcels.find(p => p.id === manual.id).inLatestOfficialSnapshot, true);
+});
+
+test('其他平台的同运单不得被淘宝合并覆盖', () => {
+  const snapshot = JSON.parse(JSON.stringify(read(page)));
+  const existing = { ...demoState().parcels[0], id: 'jd-same', providerID: 'jd', isDemo: false,
+    carrier: '圆通', trackingNumber: 'TESTYT0000001', source: 'jd-web' };
+  const next = mergeOfficialSnapshot({ version: 1, customProviders: [], parcels: [existing] }, snapshot);
+  assert.equal(next.parcels.length, 3);
+  assert.equal(next.parcels.find(p => p.id === existing.id).source, 'jd-web');
 });

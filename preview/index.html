@@ -19,14 +19,14 @@
       <button class="nav-item" data-page="settings"><span data-icon="settings"></span>设置</button>
     </nav>
     <div class="sidebar-note"><span class="tiny-dot"></span>本地保存，轻装取件<p>不读取短信<br>包裹记录不上传服务器</p></div>
-    <div class="version">拾件 0.1 <span>初版预览</span></div>
+    <div class="version">拾件 0.3 <span>初版预览</span></div>
   </aside>
   <main>
     <div class="topline"><span>让每一次取件，都从容一点。</span><span class="preview-label"><span class="tiny-dot"></span>本机预览</span></div>
     <div id="warning" class="warning" hidden></div>
     <section id="page-packages" class="page">
       <header class="page-heading"><div><div class="eyebrow">A LITTLE LESS HASSLE</div><h1>待取件<span class="heading-dot">.</span></h1><p>不同平台的包裹，一眼就有数。</p></div><button class="button primary" id="add-parcel"><span data-icon="plus"></span>添加包裹</button></header>
-      <section class="official-access" aria-label="官方取件入口"><div><strong>菜鸟身份码，现在直接打开</strong><p>已验证：登录后显示官方身份码和真实待取件。驿站扫码出库仍需实测。</p></div><div class="official-links"><a class="button primary" href="https://pages-fast.m.taobao.com/wow/z/uniapp/1100410/last-mile-fe/m-end-identity-code/home?x-ssr=true&amp;skeleton=true&amp;forceThemis=true" target="_blank" rel="noopener noreferrer">打开官方身份码 ↗</a><a class="button secondary" href="https://pages-fast.m.taobao.com/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home" target="_blank" rel="noopener noreferrer">打开官方待取件 ↗</a></div><small id="official-read-status">正在检查本次官方网页读取结果；未加载不代表没有包裹。</small></section>
+      <section class="official-access" aria-label="官方取件入口"><div><strong>淘宝身份码，按驿站要求使用</strong><p>已验证：登录后显示官方身份码和真实待取件。驿站扫码出库仍需实测。</p></div><div class="official-links"><a class="button primary" href="https://pages-fast.m.taobao.com/wow/z/uniapp/1100410/last-mile-fe/m-end-identity-code/home?x-ssr=true&amp;skeleton=true&amp;forceThemis=true" target="_blank" rel="noopener noreferrer">打开官方身份码 ↗</a><a class="button secondary" href="https://pages-fast.m.taobao.com/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home" target="_blank" rel="noopener noreferrer">打开官方待取件 ↗</a></div><small id="official-read-status">正在检查本次官方网页读取结果；未加载不代表没有包裹。</small></section>
       <section class="hero" aria-label="本地记录概览">
         <div class="hero-content"><div class="hero-kicker"><span></span>已读取 / 已保存的包裹</div><div class="hero-number"><strong id="pending-count">0</strong><span>件待取记录</span></div><p>分布在 <b id="station-count">0</b> 个取件点，请留意读取时间。</p><span class="demo-label">官方网页读取与手动记录分别标注 · 无演示包裹</span></div>
         <svg class="hero-art" viewBox="0 0 330 240" fill="none" aria-hidden="true"><ellipse cx="164" cy="206" rx="121" ry="13" fill="#163B30"/><path d="m91 87 96-42 95 44-96 48z" fill="#D8BA84"/><path d="m91 87 95 50v76l-95-50z" fill="#B7945F"/><path d="m186 137 96-48v76l-96 48z" fill="#DCC59E"/><path d="m127 71 96 48 25-13-96-47z" fill="#F2DFBC"/><path d="m223 119 25-13v33l-25 13z" fill="#F5E5C9"/><path d="m54 132 57-25 57 27-57 28z" fill="#F3E5C8"/><path d="m54 132 57 30v51l-57-30z" fill="#CDB48A"/><path d="m111 162 57-28v51l-57 28z" fill="#E9D9B8"/><path d="m76 122 57 29 15-7-57-29z" fill="#FFF2D7"/><path d="m133 151 15-7v20l-15 7z" fill="#F5E5C9"/><path d="m238 52 8-13m7 19 14-4M70 68l-5-8m-3 21-12-1" stroke="#E2C78B" stroke-width="2" stroke-linecap="round"/><rect x="204" y="156" width="40" height="22" rx="3" transform="rotate(-27 204 156)" fill="#F3E7CD"/><path d="m212 161 18-9m-15 15 14-7" stroke="#AD936A" stroke-width="2"/></svg>
@@ -43,7 +43,7 @@
     </section>
     <section id="page-providers" class="page" hidden>
       <header class="page-heading"><div><div class="eyebrow">YOUR PICKUP SHORTCUTS</div><h1>取件凭证<span class="heading-dot">.</span></h1><p>常用入口放在一起，新平台慢慢加。</p></div><button class="button primary" id="add-provider"><span data-icon="plus"></span>添加平台</button></header>
-      <div class="explanation"><span data-icon="info"></span><p>菜鸟可打开已验证的官方身份码网页；其余平台暂为手动指引。包裹自动汇总尚未打通。</p></div>
+      <div class="explanation"><span data-icon="info"></span><p>淘宝可打开已验证的官方身份码网页；其余平台暂为手动指引。包裹自动汇总尚未打通。</p></div>
       <div id="provider-grid" class="provider-grid"></div>
       <p class="section-footnote">添加平台只保存名称和微信搜索词，不会自动获得包裹数据或身份码。</p>
     </section>

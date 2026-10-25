@@ -57,7 +57,7 @@ function switchPage(page) {
 function render() {
   const list = providers();
   // 旧版演示记录仍保留在存储中，但不再混入实际使用页面。
-  const records = state.parcels.filter(p => !p.isDemo && p.inLatestOfficialSnapshot !== false);
+  const records = state.parcels.filter(p => !p.isDemo && (p.collectedAt || p.inLatestOfficialSnapshot !== false));
   const pending = records.filter(p => !p.collectedAt);
   $('#pending-count').textContent = pending.length;
   $('#station-count').textContent = new Set(pending.map(p => p.station)).size;
@@ -74,7 +74,7 @@ function render() {
     const parcels = visible.filter(p => p.station === station);
     return `<section class="station-group"><h2 class="station-heading">${icon('pin')}${esc(station)}<span>${parcels.length} 件</span></h2>${parcels.map(p => {
       const provider = list.find(s => s.id === p.providerID);
-      return `<article class="parcel-card"><div class="parcel-top">${mark(provider)}<div class="parcel-info"><h3>${esc(p.title)}</h3><p>${esc(p.carrier || '快递')} · 来源${esc(provider.name)}<span class="record-tag">${p.source === 'cainiao-web' ? '官方页面读取' : '手动添加'}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}" aria-label="${p.collectedAt ? '恢复待取' : '标记已取'}：${esc(p.title)}" title="${p.collectedAt ? '恢复待取' : '标记已取'}">${icon(p.collectedAt ? 'undo' : 'check')}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong><button class="copy-button" data-copy="${esc(p.id)}">${icon('copy')}复制</button></div><div class="parcel-bottom"><button class="entry-link" data-entry="${esc(provider.id)}">${icon('scan')}官方取件入口</button><span>${p.source === 'cainiao-web' ? '本次验证快照 · 非后台实时同步' : '状态需手动更新'}</span></div></article>`;
+      return `<article class="parcel-card"><div class="parcel-top">${mark(provider)}<div class="parcel-info"><h3>${esc(p.title)}</h3><p>${esc(p.carrier || '快递')} · 来源${esc(provider.name)}<span class="record-tag">${['cainiao-web', 'taobao-web'].includes(p.source) ? '官方页面读取' : '手动添加'}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}" aria-label="${p.collectedAt ? '恢复待取' : '标记已取'}：${esc(p.title)}" title="${p.collectedAt ? '恢复待取' : '标记已取'}">${icon(p.collectedAt ? 'undo' : 'check')}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong><button class="copy-button" data-copy="${esc(p.id)}">${icon('copy')}复制</button></div><div class="parcel-bottom"><button class="entry-link" data-entry="${esc(provider.id)}">${icon('scan')}官方取件入口</button><span>${['cainiao-web', 'taobao-web'].includes(p.source) ? '本次验证快照 · 非后台实时同步' : '状态需手动更新'}</span></div></article>`;
     }).join('')}</section>`;
   }).join('') : `<div class="empty">${icon('box')}<h3>${filters.search ? '没有找到匹配的本地记录' : filters.collected ? '还没有本地已取记录' : '官方待取件尚未读取'}</h3><p>${filters.search ? '试试其他关键词，或切换平台筛选。' : '这不代表你没有包裹。请先使用上方的官方待取件入口。'}</p></div>`;
   $('#quick-providers').innerHTML = catalog.filter(p => p.featured).map(p => `<button class="quick-provider" data-entry="${esc(p.id)}">${mark(p)}<span><strong>${esc(p.name)}</strong><small>${p.identityURL ? '打开官方身份码 · 需登录' : '尚未打通 · 手动指引'}</small></span>${icon('chevron')}</button>`).join('');
@@ -90,8 +90,8 @@ const modalHeading = title => `<div class="modal-head"><h2 id="modal-title">${ti
 function entry(id) {
   const provider = providers().find(p => p.id === id);
   if (!provider) return;
-  if (provider.id === 'cainiao' && provider.identityURL) {
-    openModal(`${modalHeading('菜鸟取件')}<div class="entry-provider">${mark(provider)}<div><strong>官方身份码入口</strong><p>已验证：本人登录后显示身份码和真实待取件</p></div></div><p class="entry-warning">使用淘宝官方页面生成和刷新身份码，不在本地复制、缓存或重画条形码。不同浏览器需要分别登录；iPhone 及驿站扫码仍需实测。</p><div class="entry-actions"><a class="button primary official-action" href="${esc(provider.identityURL)}" target="_blank" rel="noopener noreferrer">打开官方身份码 ↗</a><a class="button secondary official-action" href="${esc(provider.parcelsURL)}" target="_blank" rel="noopener noreferrer">打开官方待取件 ↗</a></div><p class="form-note" style="margin-top:16px">当前浏览器清单使用本次验证读取的快照。原生工程支持在官方页面内读取，尚需 Mac 编译及 iPhone 验证。</p>`);
+  if (provider.id === 'taobao' && provider.identityURL) {
+    openModal(`${modalHeading('淘宝取件')}<div class="entry-provider">${mark(provider)}<div><strong>官方身份码入口</strong><p>已验证：本人登录后显示身份码和真实待取件</p></div></div><p class="entry-warning">使用淘宝官方页面生成和刷新身份码，不在本地复制、缓存或重画条形码。不同浏览器需要分别登录；身份码是否可出库，以驿站要求为准。</p><div class="entry-actions"><a class="button primary official-action" href="${esc(provider.identityURL)}" target="_blank" rel="noopener noreferrer">打开官方身份码 ↗</a><a class="button secondary official-action" href="${esc(provider.parcelsURL)}" target="_blank" rel="noopener noreferrer">打开官方待取件 ↗</a></div><p class="form-note" style="margin-top:16px">当前浏览器清单使用本次验证读取的快照。iPhone 版可在官方页面内读取；网页预览仍使用本机快照。</p>`);
     return;
   }
   openModal(`${modalHeading('取件入口')}<div class="entry-provider">${mark(provider)}<div><strong>${esc(provider.name)}</strong><p>身份码及小程序自动跳转尚未接通</p></div></div><ol class="entry-steps"><li>打开微信，搜索「${esc(provider.miniProgramName)}」。</li><li>核对运营主体后，进入官方服务并登录。</li><li>查看其提供的取件码、身份码或开柜入口。</li></ol><p class="entry-warning">这里保存的是微信搜索词，尚未核验具体小程序标识及身份码页面。官网只作备用信息入口，不保证支持网页取件。</p><div class="entry-actions"><button class="button primary" id="copy-provider">${icon('copy')}复制微信搜索词</button>${provider.website ? `<a href="${esc(provider.website)}" target="_blank" rel="noopener noreferrer">查看平台官网 ↗</a>` : ''}</div>`);
