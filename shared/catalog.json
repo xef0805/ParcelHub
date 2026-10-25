@@ -14,6 +14,18 @@
     "appStoreURL": "https://apps.apple.com/cn/app/%E6%B7%98%E5%AE%9D-%E4%B8%87%E8%83%BD%E7%9A%84%E6%B7%98%E5%AE%9D/id387682726?uo=4"
   },
   {
+    "id": "pdd",
+    "name": "拼多多",
+    "shortName": "拼",
+    "color": "#E32727",
+    "symbol": "bag.fill",
+    "miniProgramName": "拼多多",
+    "website": "https://www.pinduoduo.com/",
+    "kind": "平台入口 · 取件能力待验证",
+    "featured": true,
+    "appStoreURL": "https://apps.apple.com/cn/app/id1044283059"
+  },
+  {
     "id": "cainiao",
     "name": "菜鸟",
     "shortName": "菜",
@@ -67,6 +79,7 @@
     "color": "#5284D6",
     "symbol": "shippingbox.fill",
     "miniProgramName": "兔喜生活",
+    "miniProgramURL": "https://wxmpurl.cn/3VHyC8pPJcq",
     "website": "https://tuxi.zto.cn/",
     "kind": "驿站 / 快递柜",
     "featured": false,

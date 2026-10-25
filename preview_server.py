@@ -14,7 +14,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     def allowed_path(self):
         path = unquote(urlsplit(self.path).path)
         return '..' not in path.split('/') and (path.startswith('/preview/') or path in (
-            '/shared/catalog.json', '/shared/sms-reader.js', '/shared/brand-assets.json'))
+            '/shared/catalog.json', '/shared/sms-reader.js', '/shared/brand-assets.json', '/shared/identity-link.js'))
 
     def do_HEAD(self):
         if not self.allowed_path():

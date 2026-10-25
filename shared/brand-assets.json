@@ -1,11 +1,12 @@
 {
   "app": {
     "name": "涂涂取件",
-    "source": "User-provided image",
+    "source": "User-provided logo2.png (2026-10-26)",
     "originalSize": [
       1254,
       1254
-    ]
+    ],
+    "sourceSHA256": "563203e1ecb35f50017ca562e9d1892a04c576256ca4b6b4bd9f90b2147ce587"
   },
   "brands": [
     {
@@ -245,6 +246,20 @@
       "assetName": "Brand-jtexpress",
       "preview": "/preview/assets/jtexpress.png",
       "sha256": "270c2dde87e435812f836918b4a15372079f60ade0d4b788f828aa1b143ae60b"
+    },
+    {
+      "id": "pdd",
+      "name": "拼多多 - 多多买菜，百亿补贴",
+      "publisher": "Shanghai Xunmeng Information Technology Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/3a/69/bc/3a69bc90-ca16-6b83-adef-d0e7fe1dad31/AppIcon-1x_U007emarketing-0-8-0-0-85-220-0.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/id1044283059",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-pdd",
+      "preview": "/preview/assets/pdd.png",
+      "sha256": "89ce5d4edd1128537e7c63742635fbc25b743f6bf8822c1942d7b4d3d044f2b9"
     }
   ]
 }

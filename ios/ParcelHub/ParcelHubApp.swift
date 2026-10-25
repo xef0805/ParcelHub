@@ -15,6 +15,7 @@ struct ParcelHubApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView().environmentObject(store).environmentObject(sync).tint(Palette.blue)
+                .buttonStyle(PressFeedbackStyle())
                 .background {
                     // 独立官方清单页面沿用 WebKit 会话；不切换用户正在看的身份码页面。
                     OfficialPickupWebView(session: sync.session)

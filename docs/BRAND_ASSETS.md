@@ -5,6 +5,7 @@
 | 标识 | 图片来源页面 | 发布者 |
 |---|---|---|
 | taobao | [淘宝-万能的淘宝！](https://apps.apple.com/cn/app/%E6%B7%98%E5%AE%9D-%E4%B8%87%E8%83%BD%E7%9A%84%E6%B7%98%E5%AE%9D/id387682726?uo=4) | Zhejiang Taobao Network Co.,Ltd |
+| pdd | [拼多多](https://apps.apple.com/cn/app/id1044283059) | Shanghai Xunmeng Information Technology Co., Ltd. |
 | cainiao | [菜鸟—快递物流轻松查寄取](https://apps.apple.com/cn/app/%E8%8F%9C%E9%B8%9F-%E5%BF%AB%E9%80%92%E7%89%A9%E6%B5%81%E8%BD%BB%E6%9D%BE%E6%9F%A5%E5%AF%84%E5%8F%96/id951610982?uo=4) | Hangzhou Cainiao Logistics Information Technology Co., Ltd |
 | fcbox | [丰巢-寄快递 / 洗护 / 家政 / 存包](https://apps.apple.com/cn/app/%E4%B8%B0%E5%B7%A2-%E5%AF%84%E5%BF%AB%E9%80%92-%E6%B4%97%E6%8A%A4-%E5%AE%B6%E6%94%BF-%E5%AD%98%E5%8C%85/id1259763050?uo=4) | Shenzhen Fengchao Technology Co., Ltd. |
 | tuxi | [兔喜生活+](https://apps.apple.com/cn/app/%E5%85%94%E5%96%9C%E7%94%9F%E6%B4%BB/id6756415032?uo=4) | ZTO Express Stock Co., Ltd. |
@@ -23,3 +24,5 @@
 | jtexpress | [极兔速递](https://www.jtexpress.com.cn/) | 极兔速递官方网站 |
 
 图片下载于 2026-10-25，实际图片 URL、原尺寸和校验值见 shared/brand-assets.json。App 使用打包素材，不在运行时请求图片服务器。
+
+2026-10-26 新增拼多多官方图标；应用主图标、应用内 logo 和页面预览统一替换为用户提供的新版 `logo2.png`，仅生成所需尺寸，不增加外围白边。

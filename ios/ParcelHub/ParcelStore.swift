@@ -10,6 +10,8 @@ final class ParcelStore: ObservableObject {
     @Published private(set) var stationCredentials: [String: String] = [:]
     @Published private(set) var lastOfficialReadAt: Date?
     @Published private(set) var preferredCredentialID: String?
+    @Published private(set) var enabledProviderIDs: [String] = []
+    @Published private(set) var identityBindings: [String: IdentityBinding] = [:]
     @Published var autoSyncEnabled = true {
         didSet { defaults.set(autoSyncEnabled, forKey: "parcelhub.auto-sync.v1") }
     }
@@ -49,6 +51,12 @@ final class ParcelStore: ObservableObject {
             autoSyncEnabled = defaults.object(forKey: "parcelhub.auto-sync.v1") as? Bool ?? true
             lastOfficialReadAt = defaults.object(forKey: "parcelhub.last-official-read.v1") as? Date
             preferredCredentialID = defaults.string(forKey: "parcelhub.preferred-credential.v1")
+            enabledProviderIDs = defaults.stringArray(forKey: "parcelhub.enabled-providers.v1")
+                ?? ["taobao", "pdd", "tuxi"] + providers.filter { $0.id.hasPrefix("custom-") }.map(\.id)
+                    + Array(stationCredentials.values) + (preferredCredentialID.map { [$0] } ?? [])
+            if let data = defaults.data(forKey: "parcelhub.identity-bindings.v1") {
+                identityBindings = try JSONDecoder().decode([String: IdentityBinding].self, from: data)
+            }
         } catch {
             storageWarning = "本地数据读取失败，暂不覆盖原记录。请保留现有数据并反馈问题。"
         }
@@ -58,7 +66,36 @@ final class ParcelStore: ObservableObject {
     // 隐藏旧演示记录，但保留存储，不删除用户原有数据。
     var pending: [Parcel] { parcels.filter { !$0.isDemo && !$0.isCollected && $0.inLatestOfficialSnapshot != false } }
     var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected } }
-    var credentialProviders: [PickupProvider] { providers.filter { $0.id != "manual" } }
+    var credentialProviders: [PickupProvider] { providers.filter { $0.id != "manual" && enabledProviderIDs.contains($0.id) } }
+    var availableProviders: [PickupProvider] { providers.filter { $0.id != "manual" && !$0.id.hasPrefix("custom-") && !enabledProviderIDs.contains($0.id) } }
+
+    func enableProvider(_ id: String) {
+        guard storageWarning == nil, provider(id) != nil, id != "manual", !enabledProviderIDs.contains(id) else { return }
+        enabledProviderIDs.append(id)
+        defaults.set(enabledProviderIDs, forKey: "parcelhub.enabled-providers.v1")
+    }
+
+    func removeProvider(_ id: String) {
+        guard storageWarning == nil else { return }
+        enabledProviderIDs.removeAll { $0 == id }
+        defaults.set(enabledProviderIDs, forKey: "parcelhub.enabled-providers.v1")
+        stationCredentials = stationCredentials.filter { $0.value != id }
+        defaults.set(stationCredentials, forKey: stationCredentialKey)
+        if preferredCredentialID == id {
+            preferredCredentialID = nil
+            defaults.removeObject(forKey: "parcelhub.preferred-credential.v1")
+        }
+        saveIdentityBinding(nil, for: id)
+        // 只移除入口与绑定，不删除包裹、历史或平台元数据。
+    }
+
+    func saveIdentityBinding(_ binding: IdentityBinding?, for id: String) {
+        guard storageWarning == nil, provider(id) != nil else { return }
+        identityBindings[id] = binding
+        do { defaults.set(try JSONEncoder().encode(identityBindings), forKey: "parcelhub.identity-bindings.v1") }
+        catch { storageWarning = "身份码入口保存失败，请重试" }
+    }
+
     var preferredCredential: PickupProvider? {
         if let id = preferredCredentialID, let provider = credentialProviders.first(where: { $0.id == id }) { return provider }
         let bound = Set(stationCredentials.values).compactMap { id in credentialProviders.first { $0.id == id } }
@@ -74,12 +111,12 @@ final class ParcelStore: ObservableObject {
     func moveProviders(from offsets: IndexSet, to destination: Int) {
         var ordered = credentialProviders
         ordered.move(fromOffsets: offsets, toOffset: destination)
-        providers = ordered + providers.filter { $0.id == "manual" }
+        providers = ordered + providers.filter { !enabledProviderIDs.contains($0.id) || $0.id == "manual" }
         defaults.set(ordered.map(\.id), forKey: "parcelhub.provider-order.v1")
     }
 
     func rememberCredential(_ providerID: String, for station: String) {
-        guard providerID != "manual", provider(providerID) != nil, !station.isEmpty else { return }
+        guard credentialProviders.contains(where: { $0.id == providerID }), !station.isEmpty else { return }
         stationCredentials[station] = providerID
         defaults.set(stationCredentials, forKey: stationCredentialKey)
     }

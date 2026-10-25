@@ -1,4 +1,43 @@
 export const STORAGE_KEY = 'parcelhub.preview.v1';
+export const DEFAULT_PROVIDER_IDS = ['taobao', 'pdd', 'tuxi'];
+
+export function enabledProviderIDs(state, all) {
+  const ids = state.enabledProviderIDs ?? [...DEFAULT_PROVIDER_IDS, ...(state.customProviders || []).map(p => p.id),
+    ...Object.values(state.stationCredentials || {}), state.preferredCredentialID];
+  return [...new Set(ids)].filter(id => id !== 'manual' && all.some(p => p.id === id));
+}
+
+export function credentialProviders(state, catalog) {
+  const all = [...catalog, ...state.customProviders];
+  const enabled = enabledProviderIDs(state, all);
+  return orderedProviders(catalog, state.customProviders, state.providerOrderIDs || []).filter(p => enabled.includes(p.id));
+}
+
+export function enableProvider(state, id, catalog) {
+  if (!catalog.some(p => p.id === id && id !== 'manual')) throw new Error('这个平台尚未适配');
+  return { ...state, enabledProviderIDs: [...new Set([...enabledProviderIDs(state, [...catalog, ...state.customProviders]), id])] };
+}
+
+export function removeProvider(state, id, catalog) {
+  const stationCredentials = Object.fromEntries(Object.entries(state.stationCredentials || {}).filter(([, providerID]) => providerID !== id));
+  const identityBindings = { ...state.identityBindings }; delete identityBindings[id];
+  return { ...state, enabledProviderIDs: enabledProviderIDs(state, [...catalog, ...state.customProviders]).filter(p => p !== id),
+    stationCredentials, identityBindings, preferredCredentialID: state.preferredCredentialID === id ? null : state.preferredCredentialID };
+}
+
+export function groupCollected(parcels) {
+  const groups = new Map();
+  for (const parcel of [...parcels].filter(p => p.collectedAt).sort((a, b) => Date.parse(b.collectedAt) - Date.parse(a.collectedAt))) {
+    const date = new Date(parcel.collectedAt);
+    if (Number.isNaN(date.getTime())) continue;
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (!groups.has(day)) groups.set(day, new Map());
+    const stations = groups.get(day);
+    if (!stations.has(parcel.station)) stations.set(parcel.station, []);
+    stations.get(parcel.station).push(parcel);
+  }
+  return [...groups].map(([day, stations]) => ({ day, stations: [...stations].map(([station, parcels]) => ({ station, parcels })) }));
+}
 
 export function orderedProviders(catalog, custom = [], order = []) {
   const all = [...catalog, ...custom].filter(p => p.id !== 'manual');
@@ -107,6 +146,10 @@ export function validateSavedState(value, catalog) {
         !/^#[0-9a-f]{6}$/i.test(p.color) || p.website !== '' || p.featured !== false) throw new Error('平台配置损坏');
     ids.add(p.id);
   }
+  if (value.enabledProviderIDs !== undefined && (!Array.isArray(value.enabledProviderIDs) || value.enabledProviderIDs.some(id => typeof id !== 'string'))) throw new Error('平台配置损坏');
+  if (value.identityBindings !== undefined && (!value.identityBindings || Array.isArray(value.identityBindings) || typeof value.identityBindings !== 'object'
+      || Object.entries(value.identityBindings).some(([id, binding]) => !ids.has(id) || !binding || !['shareCode', 'launchURL'].includes(binding.kind)
+        || typeof binding.value !== 'string' || typeof binding.confirmed !== 'boolean'))) throw new Error('身份码入口配置损坏');
   const parcelIDs = new Set();
   for (const p of value.parcels) {
     if (!p || !['id', 'title', 'station', 'pickupCode', 'carrier', 'trackingNumber', 'addedAt'].every(k => typeof p[k] === 'string') ||

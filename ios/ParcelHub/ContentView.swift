@@ -43,11 +43,30 @@ private struct CredentialRequest: Identifiable {
     var station: String?
 }
 
+struct PressFeedbackStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+@MainActor
+private func launchCredential(_ provider: PickupProvider, store: ParcelStore, openURL: OpenURLAction,
+                              fallback: @escaping () -> Void) async {
+    guard let binding = store.identityBindings[provider.id], binding.confirmed,
+          let url = await IdentityLinkReader.resolve(binding.value, for: provider) else { fallback(); return }
+    openURL(url) { accepted in if !accepted { fallback() } }
+}
+
 struct PackagesView: View {
     @EnvironmentObject private var store: ParcelStore
     @State private var search = ""
     @State private var adding = false
-    @State private var smsAdding = false
+    @Environment(\.openURL) private var openURL
+    @State private var launching = false
     @EnvironmentObject private var sync: OfficialSyncController
     @State private var credentialRequest: CredentialRequest?
     @State private var selectedProvider: PickupProvider?
@@ -56,6 +75,15 @@ struct PackagesView: View {
     private var displayed: [Parcel] {
         let source = store.pending
         return source.filter { search.isEmpty || [$0.title, $0.station, $0.pickupCode, $0.trackingNumber, $0.carrier, store.provider($0.providerID)?.name ?? ""].joined(separator: " ").localizedCaseInsensitiveContains(search) }
+    }
+
+    private func openCredential(_ provider: PickupProvider) {
+        guard !launching else { return }
+        launching = true
+        Task { @MainActor in
+            await launchCredential(provider, store: store, openURL: openURL) { selectedProvider = provider }
+            launching = false
+        }
     }
 
     var body: some View {
@@ -85,13 +113,22 @@ struct PackagesView: View {
                     .foregroundStyle(.white).padding(24).frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(red: 0.10, green: 0.35, blue: 0.82).gradient, in: RoundedRectangle(cornerRadius: 26))
 
-                    Button {
-                        if let provider = store.preferredCredential { selectedProvider = provider }
-                        else { credentialRequest = CredentialRequest() }
-                    } label: {
-                        Label("打开身份码", systemImage: "barcode.viewfinder")
-                            .frame(maxWidth: .infinity).padding(.vertical, 15)
-                    }.buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 14))
+                    HStack(spacing: 10) {
+                        Button { adding = true } label: {
+                            Label("手动导入包裹", systemImage: "text.bubble")
+                                .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 50)
+                                .background(Palette.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        Button {
+                            if let provider = store.preferredCredential { openCredential(provider) }
+                            else { credentialRequest = CredentialRequest() }
+                        } label: {
+                            Label("打开身份码", systemImage: "barcode.viewfinder")
+                                .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 50)
+                                .foregroundStyle(.white).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14))
+                        }.disabled(launching)
+                    }
+                    if launching { ProgressView("正在打开小程序…").font(.caption) }
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
                             if sync.isRefreshing { ProgressView().controlSize(.small) }
@@ -104,7 +141,7 @@ struct PackagesView: View {
                     }.font(.caption).foregroundStyle(.secondary)
                     Text("待取清单").font(.title2.bold())
                     if displayed.isEmpty {
-                        ContentUnavailableView(search.isEmpty ? "暂无本地待取包裹" : "没有匹配的记录", systemImage: "shippingbox", description: Text(search.isEmpty ? "登录淘宝后在前台自动检查；短信件可点右上角添加。" : "试试其他取件码、快递公司或地点。"))
+                        ContentUnavailableView(search.isEmpty ? "暂无本地待取包裹" : "没有匹配的记录", systemImage: "shippingbox", description: Text(search.isEmpty ? "登录淘宝后在前台自动检查；短信件可点“手动导入包裹”。" : "试试其他取件码、快递公司或地点。"))
                     }
                     ForEach(Array(Set(displayed.map(\.station))).sorted(), id: \.self) { station in
                         VStack(alignment: .leading, spacing: 12) {
@@ -112,12 +149,16 @@ struct PackagesView: View {
                                 Text(station).font(.title3.bold()).foregroundStyle(.primary)
                                 Spacer(minLength: 12)
                                 Button {
-                                    if let id = store.stationCredentials[station], let provider = store.provider(id) { selectedProvider = provider }
+                                    if let id = store.stationCredentials[station], let provider = store.provider(id) { openCredential(provider) }
                                     else { credentialRequest = CredentialRequest(station: station) }
                                 } label: {
                                     Text(store.stationCredentials[station].flatMap { store.provider($0)?.name }.map { "\($0)身份码" } ?? "选择身份码")
+                                        .font(.caption).padding(.horizontal, 10).padding(.vertical, 7)
+                                        .background(Palette.blue.opacity(0.09), in: Capsule())
+                                        .overlay(Capsule().stroke(Palette.blue.opacity(0.2), lineWidth: 0.7))
+                                        .frame(minHeight: 44).contentShape(Rectangle())
                                 }
-                                .font(.subheadline).fixedSize(horizontal: true, vertical: false)
+                                .fixedSize(horizontal: true, vertical: false).disabled(launching)
                             }.foregroundStyle(Palette.blue)
                             ForEach(displayed.filter { $0.station == station }) { parcel in
                                 ParcelCard(parcel: parcel)
@@ -130,18 +171,10 @@ struct PackagesView: View {
             .scrollDismissesKeyboard(.interactively)
             .background(Palette.paper).foregroundStyle(Palette.ink)
             .navigationTitle("涂涂取件").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("粘贴短信智能导入", systemImage: "text.bubble") { smsAdding = true; adding = true }
-                        Button("手动添加包裹", systemImage: "square.and.pencil") { smsAdding = false; adding = true }
-                    } label: { Image(systemName: "plus") }.accessibilityLabel("添加包裹")
-                }
-            }
-            .sheet(isPresented: $adding) { AddParcelView(fromSMS: smsAdding) }
+            .sheet(isPresented: $adding) { AddParcelView() }
             .sheet(item: $credentialRequest, onDismiss: {
                 if let providerAfterBinding {
-                    selectedProvider = providerAfterBinding
+                    openCredential(providerAfterBinding)
                     self.providerAfterBinding = nil
                 }
             }) { request in
@@ -201,9 +234,11 @@ struct CredentialPickerView: View {
     var onChoose: ((PickupProvider) -> Void)? = nil
     @EnvironmentObject private var store: ParcelStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var selected: PickupProvider?
     @State private var adding = false
     @State private var sorting = false
+    @State private var launching = false
     var body: some View {
         NavigationStack {
             List {
@@ -218,32 +253,49 @@ struct CredentialPickerView: View {
                             if let station { store.rememberCredential(provider.id, for: station) }
                             store.preferCredential(provider.id)
                             if let onChoose { onChoose(provider) }
-                            else { selected = provider }
+                            else {
+                                guard !launching else { return }
+                                launching = true
+                                Task { @MainActor in
+                                    await launchCredential(provider, store: store, openURL: openURL) { selected = provider }
+                                    launching = false
+                                }
+                            }
                         } label: {
                             HStack(spacing: 14) {
                                 ProviderMark(provider: provider)
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码").font(.headline).foregroundStyle(.primary)
-                                    Text(provider.identityURL == nil ? "打开官方服务获取凭证" : "App 内打开官方身份码")
+                                    Text(provider.identityURL != nil ? "App 内打开官方身份码" : store.identityBindings[provider.id]?.confirmed == true ? "已绑定 · 直接打开小程序" : provider.miniProgramURL != nil ? "首次试开并绑定小程序" : "入口待绑定")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if let station, store.stationCredentials[station] == provider.id { Image(systemName: "checkmark.circle.fill") }
                                 else if !sorting { Image(systemName: "chevron.right").font(.caption) }
-                            }.padding(.vertical, 5)
-                        }.buttonStyle(.plain)
+                            }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        }.buttonStyle(PressFeedbackStyle()).disabled(launching)
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                if !sorting { Button("删除", role: .destructive) { withAnimation { store.removeProvider(provider.id) } } }
+                            }
+                            .contextMenu {
+                                if provider.id != "taobao" { Button("管理小程序绑定") { selected = provider } }
+                            }
                     }.onMove { offsets, destination in store.moveProviders(from: offsets, to: destination) }
                         .deleteDisabled(true)
                         .moveDisabled(!sorting)
                 }
-                if !sorting { Section { Button { adding = true } label: { Label("添加其他平台", systemImage: "plus.circle") } } }
+                Section {
+                    HStack {
+                        Button { adding = true } label: { Label("添加其他平台", systemImage: "plus.circle") }.disabled(sorting)
+                        Spacer()
+                        Button(sorting ? "完成" : "排序") { withAnimation { sorting.toggle() } }
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }.buttonStyle(PressFeedbackStyle())
+                    if launching { ProgressView("正在打开小程序…").font(.caption) }
+                }
             }.environment(\.editMode, .constant(sorting ? .active : .inactive))
                 .navigationTitle("身份码").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(sorting ? "完成" : "排序") { withAnimation { sorting.toggle() } }
-                            .font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
-                    }
                     if showsDone { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
                 }
                 .fullScreenCover(item: $selected) { PickupEntryView(provider: $0) }
@@ -254,50 +306,110 @@ struct CredentialPickerView: View {
 
 struct PickupEntryView: View {
     let provider: PickupProvider
+    @EnvironmentObject private var store: ParcelStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @State private var copied = false
-    @State private var openFailed = false
+    @State private var link = ""
+    @State private var note: String?
+    @State private var testedValue: String?
+    @State private var trying = false
+    @State private var error: String?
+    @State private var openTask: Task<Void, Never>?
+
+    private var parsed: IdentityLinkResult? { IdentityLinkReader.parse(link, for: provider) }
+
     var body: some View {
         if provider.id == "taobao" {
             OfficialPickupView(initialPage: 1)
         } else {
             NavigationStack {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        ProviderMark(provider: provider)
-                        Text(provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码").font(.largeTitle.bold())
-                        Text("请使用本站要求的平台身份码。能查到同一包裹，不代表身份码可以通用。")
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack(spacing: 14) {
+                            ProviderMark(provider: provider)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(provider.name).font(.title2.bold())
+                                Text(store.identityBindings[provider.id]?.confirmed == true ? "已绑定小程序入口" : "首次绑定小程序")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text("粘贴官方小程序的桌面链接，试开后确认。以后点击此平台或已绑定的取件地点，会直接尝试打开对应小程序。")
                             .font(.subheadline).foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 18) {
-                            Label("打开微信，搜索「\(provider.miniProgramName)」", systemImage: "1.circle")
-                            Label("进入官方小程序并登录", systemImage: "2.circle")
-                            Label("找到身份码或取件入口，出示动态码", systemImage: "3.circle")
-                        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
-                        if provider.id == "jd" {
-                            Text("若驿站要求扫描现场的京东快递小程序码，请先用微信扫一扫进入，再找到「身份码」。现场入口可能带站点信息，应优先使用现场指引。")
-                                .font(.subheadline)
+                        if provider.miniProgramURL != nil {
+                            Label("已找到官方入口，请先试开", systemImage: "link.circle.fill").font(.subheadline).foregroundStyle(Palette.blue)
                         }
-                        if provider.id == "fcbox" {
-                            Text("丰巢官方支持通知取件码及 App 一键开柜，目前未确认可供本 App 使用的统一身份码接口。")
-                                .font(.subheadline)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("小程序口令或官方跳转链接").font(.caption).foregroundStyle(.secondary)
+                            TextField("粘贴链接或 #小程序://…", text: $link, axis: .vertical)
+                                .lineLimit(2...5).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            PasteButton(payloadType: String.self) { values in link = values.first ?? "" }
+                            if let message = parsed?.message { Text(message).font(.caption).foregroundStyle(.secondary) }
+                        }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
+                        if let error { Label(error, systemImage: "exclamationmark.circle.fill").font(.caption).foregroundStyle(.orange) }
+                        if parsed?.kind == "launchURL" {
+                            Button {
+                                trying = true; error = nil; testedValue = nil
+                                let candidate = link.trimmingCharacters(in: .whitespacesAndNewlines)
+                                openTask = Task { @MainActor in
+                                    guard let url = await IdentityLinkReader.resolve(candidate, for: provider) else {
+                                        trying = false; error = "链接未能解析到对应小程序，请重新获取完整链接。"; return
+                                    }
+                                    guard !Task.isCancelled, candidate == link.trimmingCharacters(in: .whitespacesAndNewlines) else { trying = false; return }
+                                    openURL(url) { accepted in
+                                        trying = false
+                                        if accepted { testedValue = candidate; note = "返回后确认：刚才是否进入了\(provider.miniProgramName)？" }
+                                        else { error = "无法打开微信，请确认已安装微信；也可以重新获取官方链接。" }
+                                    }
+                                }
+                            } label: {
+                                HStack { if trying { ProgressView().tint(.white) }; Text(trying ? "正在打开…" : "试开\(provider.miniProgramName)") }.frame(maxWidth: .infinity)
+                            }.buttonStyle(.borderedProminent).controlSize(.large).disabled(trying)
+                            if testedValue == link.trimmingCharacters(in: .whitespacesAndNewlines) {
+                                Text(note ?? "请确认进入了正确小程序。").font(.caption).foregroundStyle(.secondary)
+                                Button("确认已打开，保存绑定") {
+                                    guard let testedValue else { return }
+                                    store.saveIdentityBinding(IdentityBinding(kind: "launchURL", value: testedValue, confirmed: true), for: provider.id)
+                                    if store.storageWarning == nil { dismiss() }
+                                }.buttonStyle(.borderedProminent).controlSize(.large)
+                            }
+                        } else if parsed?.kind == "shareCode" {
+                            Button("保存口令（仍需在微信内打开）") {
+                                guard let value = parsed?.value else { return }
+                                store.saveIdentityBinding(IdentityBinding(kind: "shareCode", value: value, confirmed: false), for: provider.id)
+                                note = "已保存口令；这不表示可以直接唤起小程序。"
+                            }.buttonStyle(.bordered)
+                            Button("复制口令并打开微信") {
+                                UIPasteboard.general.string = parsed?.value
+                                if let url = URL(string: "weixin://") { openURL(url) { accepted in
+                                    note = accepted ? "请在微信聊天输入框粘贴并发送口令，再点击进入。" : "未打开微信，请从桌面打开并粘贴口令。"
+                                } }
+                            }.buttonStyle(.bordered)
+                        } else if !link.isEmpty { Text(parsed?.error ?? "无法识别链接").font(.caption).foregroundStyle(.orange) }
+                        if let error, !error.isEmpty, parsed?.kind == "launchURL", let url = URL(string: link), url.scheme == "https" {
+                            Link("在 Safari 打开官方入口重试", destination: url).font(.subheadline)
                         }
-                        Button(copied ? "已复制名称，再打开微信" : "复制名称并打开微信") {
-                            UIPasteboard.general.string = provider.miniProgramName
-                            copied = true
-                            if let url = URL(string: "weixin://") { openURL(url) { accepted in openFailed = !accepted } }
-                        }.buttonStyle(.borderedProminent).controlSize(.large)
-                        if openFailed { Text("无法打开微信，请从手机桌面打开并搜索。已复制小程序名称。") .font(.caption).foregroundStyle(.orange) }
-                        if let link = provider.appStoreURL, let url = URL(string: link) {
+                        if let note, testedValue == nil { Text(note).font(.caption).foregroundStyle(.secondary) }
+                        if store.identityBindings[provider.id] != nil {
+                            Button("解除此平台的入口绑定", role: .destructive) {
+                                store.saveIdentityBinding(nil, for: provider.id); testedValue = nil; note = "已解除入口绑定"
+                            }.font(.subheadline)
+                        }
+                        Text("获取方式：微信打开「\(provider.miniProgramName)」→ … → 添加到桌面；若进入 Safari，复制地址栏链接。只有“复制链接”时得到的可能是口令。不要粘贴身份码、密码或验证码。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if provider.id == "jd" { Text("京东现场扫码入口可能带站点信息，应优先使用本站提供的入口。").font(.caption).foregroundStyle(.secondary) }
+                        if provider.id == "pdd" { Text("拼多多与兔喜单独保留。本平台的通用身份码入口尚未核实，不能用兔喜码替代。").font(.caption).foregroundStyle(.secondary) }
+                        if provider.id == "fcbox" { Text("丰巢支持通知取件码和官方 App 开柜；这里绑定的是小程序入口。").font(.caption).foregroundStyle(.secondary) }
+                        if ["cainiao", "jd", "fcbox", "pdd"].contains(provider.id),
+                           let link = provider.appStoreURL, let url = URL(string: link) {
                             Link("官方 App（App Store）", destination: url).font(.subheadline)
                         }
-                        Text("当前可打开微信，尚不能直达这个小程序的身份码页面；不会用淘宝码替代。")
-                            .font(.caption).foregroundStyle(.secondary)
                     }.padding(24)
                 }.background(Palette.paper)
-                    .navigationTitle("取件身份码").navigationBarTitleDisplayMode(.inline)
+                    .navigationTitle("小程序绑定").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+                    .onAppear { link = store.identityBindings[provider.id]?.value ?? provider.miniProgramURL ?? "" }
+                    .onChange(of: link) { _, _ in testedValue = nil; note = nil; error = nil }
+                    .onDisappear { openTask?.cancel() }
             }
         }
     }
@@ -331,15 +443,37 @@ struct MyView: View {
 
 struct CollectedParcelsView: View {
     @EnvironmentObject private var store: ParcelStore
+    @State private var search = ""
+    private var records: [Parcel] {
+        store.collected.filter { search.isEmpty || [$0.title, $0.station, $0.pickupCode, $0.carrier, $0.trackingNumber].joined(separator: " ").localizedCaseInsensitiveContains(search) }
+            .sorted { ($0.collectedAt ?? .distantPast) > ($1.collectedAt ?? .distantPast) }
+    }
+    private var days: [Date] {
+        Array(Set(records.compactMap(\.collectedAt).map { Calendar.current.startOfDay(for: $0) })).sorted(by: >)
+    }
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 14) {
-                if store.collected.isEmpty { ContentUnavailableView("暂无已取记录", systemImage: "checkmark.circle", description: Text("待取清单中标记已取的包裹会保存在这里。")) }
-                ForEach(store.collected.sorted { ($0.collectedAt ?? .distantPast) > ($1.collectedAt ?? .distantPast) }) { parcel in
-                    VStack(alignment: .leading, spacing: 8) { Text(parcel.station).font(.caption).foregroundStyle(.secondary); ParcelCard(parcel: parcel) }
+            LazyVStack(alignment: .leading, spacing: 18) {
+                if records.isEmpty { ContentUnavailableView(search.isEmpty ? "暂无已取记录" : "没有匹配的记录", systemImage: "checkmark.circle") }
+                ForEach(days, id: \.self) { day in
+                    let daily = records.filter { Calendar.current.isDate($0.collectedAt ?? .distantPast, inSameDayAs: day) }
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(day.formatted(date: .abbreviated, time: .omitted)).font(.title3.bold())
+                        ForEach(Array(Set(daily.map(\.station))).sorted(), id: \.self) { station in
+                            Text(station).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                            ForEach(daily.filter { $0.station == station }) { ParcelCard(parcel: $0) }
+                        }
+                    }
                 }
             }.padding(20)
+        }.safeAreaInset(edge: .top, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("搜索包裹、取件码或地点", text: $search).textInputAutocapitalization(.never).autocorrectionDisabled()
+                if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
+            }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20).padding(.vertical, 10).background(Palette.paper)
         }.background(Palette.paper).navigationTitle("已取记录").navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
     }
 }
 
@@ -355,16 +489,17 @@ struct SettingsView: View {
                 Text("当前仅淘宝清单支持同步。iOS 后台运行由系统调度，本版不承诺锁屏后持续更新。") .font(.caption).foregroundStyle(.secondary)
             }
             Section("短信与本地记录") {
-                Text("朋友寄件也可添加：在短信中复制完整通知，到右上角 + 选择短信智能导入。自动识别取件码，沿用该物流公司最近一次地点，按日期编号。确认后只保存包裹字段。")
+                Text("朋友寄件也可添加：在短信中复制完整通知，点击主页的“手动导入包裹”。自动识别取件码，沿用该物流公司最近一次地点，按日期编号。确认后只保存包裹字段。")
                 Text("不会自动读取短信收件箱，也不保存短信原文。短信件和未接通平台的包裹，取完后需手动标记。")
             }
             Section("身份码") {
                 NavigationLink("地点身份码绑定") { StationCredentialSettingsView() }
-                Text("淘宝、菜鸟、京东等来源分别保留；身份码页可手动排序，地点可记住常用入口。除淘宝官方网页外，其余动态码仍在逐项验证。")
+                NavigationLink("小程序入口绑定") { MiniProgramSettingsView() }
+                Text("不同平台凭证单独保留。身份码页右滑删除入口，长按可管理绑定。兔喜已核实官方首页跳转链接，仍需首次试开确认；其他平台逐项适配。")
             }
             Section("关于涂涂取件") {
                 Label("蓝白配色，跟随系统深色模式", systemImage: "circle.lefthalf.filled")
-                Text("版本 0.4.0 · 本地开发版")
+                Text("版本 0.5.0 · 本地开发版")
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
@@ -607,5 +742,29 @@ struct OfficialPickupView: View {
                 }
             }
         }
+    }
+}
+
+struct MiniProgramSettingsView: View {
+    @EnvironmentObject private var store: ParcelStore
+    @State private var selected: PickupProvider?
+    var body: some View {
+        List {
+            ForEach(store.credentialProviders.filter { $0.id != "taobao" }) { provider in
+                Button { selected = provider } label: {
+                    HStack {
+                        ProviderMark(provider: provider)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(provider.name).foregroundStyle(.primary)
+                            Text(store.identityBindings[provider.id]?.confirmed == true ? "已确认跳转链接" : store.identityBindings[provider.id]?.kind == "shareCode" ? "已保存口令 · 不能直达" : "未绑定")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption)
+                    }.frame(maxWidth: .infinity).contentShape(Rectangle())
+                }.buttonStyle(PressFeedbackStyle())
+            }
+        }.navigationTitle("小程序入口绑定").navigationBarTitleDisplayMode(.inline)
+            .fullScreenCover(item: $selected) { PickupEntryView(provider: $0) }
     }
 }

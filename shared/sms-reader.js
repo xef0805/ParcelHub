@@ -42,19 +42,20 @@
   const tracking = content.match(/(?:运单号|快递单号|单号)\s*[:：为]?\s*([A-Za-z0-9]{6,40})/i)?.[1] || '';
   const local = new Date();
   day ||= `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+  const compactDay = day.replace(/-/g, '');
   const titles = history.filter(p => !p.isDemo).map(p => String(p.title || ''));
   let serial = 1;
   for (const title of titles) {
-    if (title.startsWith(day + ' ')) {
-      const match = title.slice(day.length + 1).match(/^快件(\d+)号$/);
-      if (match) serial = Math.max(serial, Number(match[1]) + 1);
-    }
+    const suffix = title.startsWith(compactDay) ? title.slice(compactDay.length)
+      : title.startsWith(day + ' ') ? title.slice(day.length + 1) : '';
+    const match = suffix.match(/^(?:包裹|快件)(\d+)号$/);
+    if (match && Number.isSafeInteger(Number(match[1]))) serial = Math.max(serial, Number(match[1]) + 1);
   }
   const state = codeCandidates.length === 1 ? 'ready' : codeCandidates.length > 1 ? 'choose_code' : 'needs_code';
   const message = state === 'choose_code' ? '识别到多个取件码，请选择本次要添加的一件'
     : state === 'needs_code' ? '未明确识别取件码，请核对短信或手动填写'
     : stationSource === 'history' ? `已沿用上次${carrier}的取件地点，请确认本次仍在此处`
     : stationSource === 'missing' ? '已识别取件码，请补充取件地点' : '已从短信识别，请核对后保存';
-  return { state, message, title: `${day} 快件${serial}号`, carrier, providerID, station, stationSource,
+  return { state, message, title: `${compactDay}包裹${serial}号`, carrier, providerID, station, stationSource,
     pickupCode: codeCandidates.length === 1 ? codeCandidates[0] : '', codeCandidates, trackingNumber: tracking };
 })

@@ -5,6 +5,8 @@
 	};
 	"objectVersion" = 56;
 	"objects" = {
+		"8A1840DFB6CE408A81ABF422" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.javascript"; "path" = "../shared/identity-link.js"; "sourceTree" = "SOURCE_ROOT"; };
+		"A74D5783409040D1B18E1771" = { "isa" = "PBXBuildFile"; "fileRef" = "8A1840DFB6CE408A81ABF422"; };
 		"74A4CB3DF439EB822886AB0F" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.javascript"; "path" = "../shared/sms-reader.js"; "sourceTree" = "SOURCE_ROOT"; };
 		"0C51E554DE21868633AB109C" = { "isa" = "PBXBuildFile"; "fileRef" = "74A4CB3DF439EB822886AB0F"; };
 		"98A7477EE627990C018C8A4B" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "OfficialSyncController.swift"; "sourceTree" = "<group>"; };
@@ -149,6 +151,7 @@
 				"3A66A12C91214A95C007431D",
 				"0BB79887AE99B766C0781F2F",
 				"74A4CB3DF439EB822886AB0F",
+				"8A1840DFB6CE408A81ABF422",
 				"6F7199ED7B63CDA338A0FB82",
 			);
 			"sourceTree" = "<group>";
@@ -174,6 +177,7 @@
 			"files" = (
 				"07C2DCD88FA3BD22E740D436",
 				"0C51E554DE21868633AB109C",
+				"A74D5783409040D1B18E1771",
 				"999FF37E9C5A0FFB78E1CDE2",
 				"B14A8354BF18ECEBADE93920",
 				"CF52F5494423AF6A38CC3F1F",
@@ -230,8 +234,8 @@
 				"INFOPLIST_FILE" = "ParcelHub/Info.plist";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
-				"MARKETING_VERSION" = "0.4.0";
-				"CURRENT_PROJECT_VERSION" = "3";
+				"MARKETING_VERSION" = "0.5.0";
+				"CURRENT_PROJECT_VERSION" = "4";
 				"SWIFT_EMIT_LOC_STRINGS" = "YES";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"LD_RUNPATH_SEARCH_PATHS" = (
@@ -250,8 +254,8 @@
 				"INFOPLIST_FILE" = "ParcelHub/Info.plist";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
-				"MARKETING_VERSION" = "0.4.0";
-				"CURRENT_PROJECT_VERSION" = "3";
+				"MARKETING_VERSION" = "0.5.0";
+				"CURRENT_PROJECT_VERSION" = "4";
 				"SWIFT_EMIT_LOC_STRINGS" = "YES";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"LD_RUNPATH_SEARCH_PATHS" = (

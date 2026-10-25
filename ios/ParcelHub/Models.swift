@@ -1,5 +1,49 @@
 import Foundation
 import SwiftUI
+import JavaScriptCore
+
+struct IdentityBinding: Codable, Equatable {
+    var kind: String
+    var value: String
+    var confirmed: Bool
+
+}
+
+struct IdentityLinkResult: Decodable {
+    var kind: String?
+    var value: String?
+    var message: String?
+    var error: String?
+    var resolvedURL: String?
+}
+
+enum IdentityLinkReader {
+    static func parse(_ value: String, for provider: PickupProvider, landingHTML: String = "") -> IdentityLinkResult? {
+        guard let url = Bundle.main.url(forResource: "identity-link", withExtension: "js"),
+              let script = try? String(contentsOf: url, encoding: .utf8), let context = JSContext(),
+              let data = try? JSONEncoder().encode([value, provider.miniProgramName, landingHTML]),
+              let arguments = String(data: data, encoding: .utf8),
+              let json = context.evaluateScript("JSON.stringify((\(script))(...\(arguments)))")?.toString(),
+              context.exception == nil, let result = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(IdentityLinkResult.self, from: result)
+    }
+
+    @MainActor
+    static func resolve(_ value: String, for provider: PickupProvider) async -> URL? {
+        guard let parsed = parse(value, for: provider), parsed.kind == "launchURL", let url = URL(string: value) else { return nil }
+        if url.scheme == "weixin" { return url }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        guard let (data, response) = try? await session.data(from: url), !Task.isCancelled,
+              let response = response as? HTTPURLResponse, response.statusCode == 200,
+              let finalURL = response.url, parse(finalURL.absoluteString, for: provider)?.kind == "launchURL",
+              data.count <= 512_000, let html = String(data: data, encoding: .utf8),
+              let result = parse(value, for: provider, landingHTML: html), let resolved = result.resolvedURL else { return nil }
+        return URL(string: resolved)
+    }
+}
 
 struct PickupProvider: Codable, Identifiable, Hashable {
     var id: String
@@ -14,6 +58,7 @@ struct PickupProvider: Codable, Identifiable, Hashable {
     var identityURL: String? = nil
     var parcelsURL: String? = nil
     var appStoreURL: String? = nil
+    var miniProgramURL: String? = nil
 
     var tint: Color {
         let value = UInt64(color.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16) ?? 0x479981

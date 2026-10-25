@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { demoState, addParcel, addProvider, toggleCollected, filterParcels, validateSavedState, orderedProviders, reorderProvider, bindStationCredential, boundStationProvider, preferredCredentialProvider } from '../preview/model.mjs';
+import { demoState, addParcel, addProvider, toggleCollected, filterParcels, validateSavedState, orderedProviders, reorderProvider, bindStationCredential, boundStationProvider, preferredCredentialProvider, credentialProviders, enableProvider, removeProvider, groupCollected } from '../preview/model.mjs';
 
 const catalog = JSON.parse(await readFile(new URL('../shared/catalog.json', import.meta.url), 'utf8'));
 const draft = { title: '真实手动记录', station: '测试取件点', providerID: 'fcbox', pickupCode: '000012', carrier: '顺丰', trackingNumber: 'SF00001' };
@@ -80,4 +80,39 @@ test('已有常用身份码可直接打开，多种地点绑定时不擅自猜�
   const multiple = { stationCredentials: { '北门': 'taobao', '南门': 'jd' } };
   assert.equal(preferredCredentialProvider(multiple, catalog), undefined);
   assert.equal(preferredCredentialProvider({ ...multiple, preferredCredentialID: 'jd' }, catalog).id, 'jd');
+});
+
+test('首次只启用淘宝、拼多多、兔喜；旧地点绑定与自定义平台保留', () => {
+  const initial={version:1,customProviders:[],parcels:[]};
+  assert.deepEqual(credentialProviders(initial,catalog).map(p=>p.id).sort(),['pdd','taobao','tuxi']);
+  const old=addProvider({...initial,stationCredentials:{北门:'jd'}},{name:'旧入口',miniProgramName:'旧入口'},catalog);
+  const active=credentialProviders(old,catalog).map(p=>p.id);
+  assert.ok(active.includes('jd'));assert.ok(active.includes(old.customProviders[0].id));
+  assert.ok(!active.includes('cainiao'));
+});
+
+test('删除入口清理常用、地点与链接绑定，保留所有包裹；全部删除后不会被默认平台复活', () => {
+  const initial={...demoState(),preferredCredentialID:'fcbox',stationCredentials:{北门:'fcbox',南门:'taobao'},identityBindings:{fcbox:{kind:'launchURL',value:'https://wxmpurl.cn/example',confirmed:true}}};
+  const next=removeProvider(initial,'fcbox',catalog);
+  assert.deepEqual(next.parcels,initial.parcels);assert.deepEqual(next.stationCredentials,{南门:'taobao'});
+  assert.equal(next.preferredCredentialID,null);assert.equal(next.identityBindings.fcbox,undefined);
+  assert.equal(credentialProviders(next,catalog).some(p=>p.id==='fcbox'),false);
+  const readded=enableProvider(next,'fcbox',catalog);
+  assert.equal(credentialProviders(readded,catalog).filter(p=>p.id==='fcbox').length,1);
+  let empty=next;for(const p of credentialProviders(next,catalog))empty=removeProvider(empty,p.id,catalog);
+  assert.equal(credentialProviders(JSON.parse(JSON.stringify(empty)),catalog).length,0);
+  assert.throws(()=>enableProvider(empty,'unknown',catalog),/尚未适配/);
+});
+
+test('已取记录按本地日期倒序，同一天同地点归组；恢复待取后移出历史', () => {
+  const records=[
+    {id:'old',station:'北门',collectedAt:'2026-10-24T12:00:00'},
+    {id:'first',station:'北门',collectedAt:'2026-10-25T13:00:00'},
+    {id:'other',station:'南门',collectedAt:'2026-10-25T14:00:00'},
+    {id:'last',station:'北门',collectedAt:'2026-10-25T15:00:00'},
+    {id:'pending',station:'北门',collectedAt:null}];
+  const grouped=groupCollected(records);
+  assert.deepEqual(grouped.map(p=>p.day),['2026-10-25','2026-10-24']);
+  assert.deepEqual(grouped[0].stations.find(s=>s.station==='北门').parcels.map(p=>p.id),['last','first']);
+  assert.equal(groupCollected(toggleCollected({parcels:records},'last').parcels)[0].stations.find(s=>s.station==='北门').parcels.length,1);
 });

@@ -17,7 +17,7 @@ test('完整短信自动识别物流、前导零取件码，并沿用同公司�
   assert.equal(result.station, '北门快递超市');
   assert.equal(result.providerID, 'cainiao');
   assert.equal(result.pickupCode, '01-02-0003');
-  assert.equal(result.title, `${day} 快件2号`);
+  assert.equal(result.title, '20261025包裹2号');
   assert.equal(result.stationSource, 'history');
 });
 test('短信明确的新地点优先于历史地点；明确末端平台优先于历史平台', () => {
@@ -31,7 +31,7 @@ test('无历史时不能根据快递公司猜测驿站；名称每日重新编�
   const result = read('【顺丰】取件码：000123。', history, '2026-10-26');
   assert.equal(result.providerID, 'manual');
   assert.equal(result.station, '');
-  assert.equal(result.title, '2026-10-26 快件1号');
+  assert.equal(result.title, '20261026包裹1号');
 });
 test('验证码、手机号、日期和链接里的数字不能当取件码', () => {
   for (const text of ['验证码123456，请勿泄露', '请联系13800000000', '取件码13800000000', '取件码2026-10-25', '点击https://example.com/取件码123456']) {
@@ -54,7 +54,13 @@ test('支持全角数字与凭码取件，只提取明确的运单号', () => {
 });
 test('不保存原短信或电话号码，编号使用最大已用序号防止重名', () => {
   const result = read('【韵达】取件码000123，联系电话13800000000', [...history, { title: `${day} 快件8号` }], day);
-  assert.equal(result.title, `${day} 快件9号`);
+  assert.equal(result.title, '20261025包裹9号');
   assert.equal(JSON.stringify(result).includes('13800000000'), false);
   assert.equal('raw' in result, false);
+});
+
+test('新旧命名混用时按当天最大序号继续，不改写历史名称', () => {
+  const records = [{title:'20261025包裹4号'}, {title:'2026-10-25 快件8号'}, {title:'20261024包裹99号'}, {title:'20261025包裹50号',isDemo:true}];
+  assert.equal(read('',records,day).title,'20261025包裹9号');
+  assert.equal(records[1].title,'2026-10-25 快件8号');
 });
