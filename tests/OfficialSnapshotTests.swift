@@ -12,11 +12,11 @@ struct OfficialSnapshotTests {
         legacy.source = "cainiao-web"
         legacy.providerID = "cainiao"
         var manual = first[0]
-        manual.id = UUID(); manual.source = nil; manual.providerID = "fcbox"
+        manual.id = UUID(); manual.source = nil; manual.providerID = "fcbox"; manual.trackingNumber = "MANUAL00001"; manual.credentials = nil
         var other = first[0]
-        other.id = UUID(); other.source = "jd-web"; other.providerID = "jd"
+        other.id = UUID(); other.source = "tuxi-web"; other.providerID = "tuxi"; other.trackingNumber = "TUXI00001"; other.credentials = nil
         var collected = first[0]
-        collected.id = UUID(); collected.collectedAt = now
+        collected.id = UUID(); collected.collectedAt = now; collected.trackingNumber = "COLLECTED00001"; collected.credentials = nil
         let original = [legacy, manual, other, collected]
         let empty = OfficialPageRead(state: "ready", message: "", parcels: [], expectedCount: 0, readAt: "test")
         let cleared = try OfficialSnapshotMerge.applying(empty, to: original)
@@ -26,8 +26,22 @@ struct OfficialSnapshotTests {
         precondition(original[0].inLatestOfficialSnapshot == true)
         let updated = try OfficialSnapshotMerge.applying(snapshot, to: [legacy, other])
         precondition(updated.count == 2 && updated[0].id == legacy.id && updated[0].providerID == "taobao")
-        precondition(updated[1].source == "jd-web")
-        let delayed = try OfficialSnapshotMerge.applying(snapshot, to: [collected])
+        precondition(updated[1].source == "tuxi-web")
+        var same = other
+        same.trackingNumber = row.trackingNumber; same.carrier = "中通快递"; same.pickupCode = "R-001"
+        same.smsOriginal = "【中通】测试通知，取件码R-001。"; same.smsImportedAt = now
+        let merged = try OfficialSnapshotMerge.applying(snapshot, to: [same], now: now)
+        precondition(merged.count == 1 && merged[0].id == same.id && merged[0].smsOriginal == same.smsOriginal)
+        precondition(merged[0].pickupCredentials.count == 2, "Keep each source credential while deduplicating the physical parcel")
+        var deleted = merged[0]
+        deleted.collectedAt = now; deleted.deletedAt = now; deleted.smsOriginal = nil
+        let noResurrection = try OfficialSnapshotMerge.applying(snapshot, to: [deleted], now: now)
+        precondition(noResurrection.count == 1 && !noResurrection[0].isPending && noResurrection[0].smsOriginal == nil)
+        let legacyDuplicates = ParcelIdentity.coalescing([same, merged[0]])
+        precondition(legacyDuplicates.count == 1 && legacyDuplicates[0].pickupCredentials.count == 2)
+        var matchingCollected = first[0]
+        matchingCollected.collectedAt = now
+        let delayed = try OfficialSnapshotMerge.applying(snapshot, to: [matchingCollected])
         precondition(delayed[0].collectedAt == now, "Auto refresh must preserve manual collection while official status is delayed")
         for invalid in [
             OfficialPageRead(state: "error", message: "请求超时", parcels: [], expectedCount: 0, readAt: "test"),

@@ -21,8 +21,13 @@ final class OfficialSyncController: ObservableObject {
             guard let self, self.active, let result else { return }
             self.finish()
             if result.state == "ready" {
+                let previousIDs = Set(self.store.parcels.map(\.id))
                 if let error = self.store.importOfficial(result) { self.status = error }
-                else { self.status = "已同步淘宝待取清单"; self.needsLogin = false }
+                else {
+                    let added = self.store.pending.filter { !previousIDs.contains($0.id) }.count
+                    self.status = added > 0 ? "已同步淘宝 · 新增 \(added) 件到站包裹" : "已同步淘宝待取清单"
+                    self.needsLogin = false
+                }
             } else {
                 self.needsLogin = result.state == "login_required"
                 self.status = self.needsLogin ? "请到“我的 → 设置”登录淘宝" : "未完整读取，原有包裹已保留"

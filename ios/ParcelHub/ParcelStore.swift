@@ -18,7 +18,6 @@ final class ParcelStore: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let parcelKey = "parcelhub.parcels.v1"
-    private let providerKey = "parcelhub.providers.v1"
     private let stationCredentialKey = "parcelhub.station-credentials.v1"
 
     init() {
@@ -27,9 +26,6 @@ final class ParcelStore: ObservableObject {
                 throw CocoaError(.fileNoSuchFile)
             }
             providers = try JSONDecoder().decode([PickupProvider].self, from: Data(contentsOf: url))
-            if let saved = defaults.data(forKey: providerKey) {
-                providers += try JSONDecoder().decode([PickupProvider].self, from: saved)
-            }
             if let saved = defaults.data(forKey: parcelKey) {
                 parcels = try JSONDecoder().decode([Parcel].self, from: saved)
                 // 旧版以菜鸟命名的读取器实际使用淘宝网页，只迁移官方来源记录。
@@ -40,6 +36,7 @@ final class ParcelStore: ObservableObject {
                 parcels = []
                 persistParcels()
             }
+            parcels = ParcelIdentity.coalescing(parcels)
             stationCredentials = defaults.dictionary(forKey: stationCredentialKey) as? [String: String] ?? [:]
             let savedOrder = defaults.stringArray(forKey: "parcelhub.provider-order.v1") ?? []
             var seen = Set<String>()
@@ -51,11 +48,11 @@ final class ParcelStore: ObservableObject {
             autoSyncEnabled = defaults.object(forKey: "parcelhub.auto-sync.v1") as? Bool ?? true
             lastOfficialReadAt = defaults.object(forKey: "parcelhub.last-official-read.v1") as? Date
             preferredCredentialID = defaults.string(forKey: "parcelhub.preferred-credential.v1")
-            enabledProviderIDs = defaults.stringArray(forKey: "parcelhub.enabled-providers.v1")
-                ?? ["taobao", "pdd", "tuxi"] + providers.filter { $0.id.hasPrefix("custom-") }.map(\.id)
-                    + Array(stationCredentials.values) + (preferredCredentialID.map { [$0] } ?? [])
+            enabledProviderIDs = ["taobao", "tuxi", "yishoufa", "fcbox", "sms"]
+            stationCredentials = stationCredentials.filter { enabledProviderIDs.contains($0.value) }
+            for index in parcels.indices where provider(parcels[index].providerID) == nil { parcels[index].providerID = "manual" }
             if let data = defaults.data(forKey: "parcelhub.identity-bindings.v1") {
-                identityBindings = try JSONDecoder().decode([String: IdentityBinding].self, from: data)
+                identityBindings = try JSONDecoder().decode([String: IdentityBinding].self, from: data).filter { enabledProviderIDs.contains($0.key) }
             }
         } catch {
             storageWarning = "本地数据读取失败，暂不覆盖原记录。请保留现有数据并反馈问题。"
@@ -64,31 +61,10 @@ final class ParcelStore: ObservableObject {
 
     func provider(_ id: String) -> PickupProvider? { providers.first { $0.id == id } }
     // 隐藏旧演示记录，但保留存储，不删除用户原有数据。
-    var pending: [Parcel] { parcels.filter { !$0.isDemo && !$0.isCollected && $0.inLatestOfficialSnapshot != false } }
-    var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected } }
+    var pending: [Parcel] { parcels.filter { $0.isPending } }
+    var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected && $0.deletedAt == nil } }
+    var smsParcels: [Parcel] { parcels.filter { !$0.isDemo && $0.deletedAt == nil && $0.hasSMS }.sorted { ($0.smsImportedAt ?? $0.addedAt) > ($1.smsImportedAt ?? $1.addedAt) } }
     var credentialProviders: [PickupProvider] { providers.filter { $0.id != "manual" && enabledProviderIDs.contains($0.id) } }
-    var availableProviders: [PickupProvider] { providers.filter { $0.id != "manual" && !$0.id.hasPrefix("custom-") && !enabledProviderIDs.contains($0.id) } }
-
-    func enableProvider(_ id: String) {
-        guard storageWarning == nil, provider(id) != nil, id != "manual", !enabledProviderIDs.contains(id) else { return }
-        enabledProviderIDs.append(id)
-        defaults.set(enabledProviderIDs, forKey: "parcelhub.enabled-providers.v1")
-    }
-
-    func removeProvider(_ id: String) {
-        guard storageWarning == nil else { return }
-        enabledProviderIDs.removeAll { $0 == id }
-        defaults.set(enabledProviderIDs, forKey: "parcelhub.enabled-providers.v1")
-        stationCredentials = stationCredentials.filter { $0.value != id }
-        defaults.set(stationCredentials, forKey: stationCredentialKey)
-        if preferredCredentialID == id {
-            preferredCredentialID = nil
-            defaults.removeObject(forKey: "parcelhub.preferred-credential.v1")
-        }
-        saveIdentityBinding(nil, for: id)
-        // 只移除入口与绑定，不删除包裹、历史或平台元数据。
-    }
-
     func saveIdentityBinding(_ binding: IdentityBinding?, for id: String) {
         guard storageWarning == nil, provider(id) != nil else { return }
         identityBindings[id] = binding
@@ -141,43 +117,51 @@ final class ParcelStore: ObservableObject {
         }
     }
 
-    func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String, source: String = "manual") -> String? {
+    func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String,
+             source: String = "manual", smsOriginal: String? = nil, smsSender: String? = nil) -> String? {
         if storageWarning != nil { return "本地数据异常，暂时无法保存新记录" }
         if let error = ParcelDraftValidator.validate(title: title, station: station, code: code, providerID: providerID, providers: providers) { return error }
-        let number = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        let company = carrier.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 运单号和取件码都保持字符串，避免丢失前导零。
-        if !number.isEmpty && parcels.contains(where: {
-            !$0.isDemo && $0.trackingNumber.caseInsensitiveCompare(number) == .orderedSame &&
-            $0.carrier.caseInsensitiveCompare(company) == .orderedSame
-        }) { return "已存在相同快递公司和运单号的记录" }
-        parcels.insert(Parcel(id: UUID(), title: title.trimmingCharacters(in: .whitespacesAndNewlines), providerID: providerID,
-                              station: station.trimmingCharacters(in: .whitespacesAndNewlines), pickupCode: code.trimmingCharacters(in: .whitespacesAndNewlines),
-                              carrier: company, trackingNumber: number, addedAt: Date(), isDemo: false, source: source), at: 0)
+        let now = Date()
+        var incoming = Parcel(id: UUID(), title: title.trimmingCharacters(in: .whitespacesAndNewlines), providerID: providerID,
+            station: station.trimmingCharacters(in: .whitespacesAndNewlines), pickupCode: code.trimmingCharacters(in: .whitespacesAndNewlines),
+            carrier: carrier.trimmingCharacters(in: .whitespacesAndNewlines), trackingNumber: ParcelIdentity.text(trackingNumber), addedAt: now, isDemo: false, source: source)
+        if let smsOriginal, !smsOriginal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard smsOriginal.count <= 8000 else { return "短信内容过长，请只粘贴本条取件通知" }
+            incoming.smsOriginal = smsOriginal
+            incoming.smsFingerprint = ParcelIdentity.fingerprint(smsOriginal)
+            incoming.smsSender = smsSender
+            incoming.smsImportedAt = now
+        }
+        do {
+            if let index = try ParcelIdentity.match(incoming, in: parcels, now: now) {
+                guard parcels[index].deletedAt == nil else { return "该包裹的已取记录已删除，不会重复导入" }
+                if incoming.hasSMS && ParcelIdentity.text(incoming.smsOriginal ?? "") != ParcelIdentity.text(parcels[index].smsOriginal ?? "") {
+                    if !parcels[index].hasSMS { parcels[index].title = incoming.title }
+                    parcels[index].smsOriginal = incoming.smsOriginal; parcels[index].smsSender = incoming.smsSender; parcels[index].smsImportedAt = now
+                    parcels[index].smsFingerprint = incoming.smsFingerprint
+                }
+                if parcels[index].trackingNumber.isEmpty { parcels[index].trackingNumber = incoming.trackingNumber }
+                if parcels[index].carrier.isEmpty { parcels[index].carrier = incoming.carrier }
+                parcels[index].attach(ParcelCredential(providerID: providerID, station: incoming.station, pickupCode: incoming.pickupCode,
+                                                       source: source, isCurrent: true, lastSeenAt: now))
+            } else { parcels.insert(incoming, at: 0) }
+            persistParcels()
+            return storageWarning
+        } catch { return error.localizedDescription }
+    }
+
+    func deleteCollected(_ id: UUID) {
+        guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == id && $0.isCollected }) else { return }
+        parcels[index].deletedAt = Date()
+        parcels[index].smsFingerprint = parcels[index].smsFingerprint ?? parcels[index].smsOriginal.map { ParcelIdentity.fingerprint($0) }
+        parcels[index].smsOriginal = nil; parcels[index].smsSender = nil; parcels[index].smsImportedAt = nil
         persistParcels()
-        return nil
     }
 
     func toggleCollected(_ parcel: Parcel) {
         guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == parcel.id }) else { return }
         parcels[index].collectedAt = parcel.isCollected ? nil : Date()
         persistParcels()
-    }
-
-    func addProvider(name: String, miniProgramName: String) -> String? {
-        if storageWarning != nil { return "本地数据异常，暂时无法保存" }
-        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let search = miniProgramName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, !search.isEmpty else { return "请填写平台名称和微信搜索词" }
-        guard clean.count <= 20, search.count <= 40 else { return "平台名称或搜索词过长" }
-        guard !providers.contains(where: { $0.name.caseInsensitiveCompare(clean) == .orderedSame }) else { return "这个平台已经存在" }
-        providers.append(PickupProvider(id: "custom-\(UUID().uuidString)", name: clean, shortName: String(clean.prefix(1)), color: "#2867D8",
-                                        symbol: "square.stack.3d.up.fill", miniProgramName: search, website: "", kind: "自定义平台", featured: false))
-        do {
-            let custom = providers.filter { $0.id.hasPrefix("custom-") }
-            defaults.set(try JSONEncoder().encode(custom), forKey: providerKey)
-        } catch { storageWarning = "平台配置保存失败，请重试" }
-        return nil
     }
 
     private func persistParcels() {

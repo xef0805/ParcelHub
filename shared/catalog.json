@@ -14,40 +14,16 @@
     "appStoreURL": "https://apps.apple.com/cn/app/%E6%B7%98%E5%AE%9D-%E4%B8%87%E8%83%BD%E7%9A%84%E6%B7%98%E5%AE%9D/id387682726?uo=4"
   },
   {
-    "id": "pdd",
-    "name": "拼多多",
-    "shortName": "拼",
-    "color": "#E32727",
-    "symbol": "bag.fill",
-    "miniProgramName": "拼多多",
-    "website": "https://www.pinduoduo.com/",
-    "kind": "平台入口 · 取件能力待验证",
-    "featured": true,
-    "appStoreURL": "https://apps.apple.com/cn/app/id1044283059"
-  },
-  {
-    "id": "cainiao",
-    "name": "菜鸟",
-    "shortName": "菜",
-    "color": "#FFAB34",
+    "id": "tuxi",
+    "name": "兔喜生活",
+    "shortName": "兔",
+    "color": "#5284D6",
     "symbol": "shippingbox.fill",
-    "miniProgramName": "菜鸟",
-    "website": "https://www.cainiao.com/",
-    "kind": "驿站",
-    "featured": true,
-    "appStoreURL": "https://apps.apple.com/cn/app/%E8%8F%9C%E9%B8%9F-%E5%BF%AB%E9%80%92%E7%89%A9%E6%B5%81%E8%BD%BB%E6%9D%BE%E6%9F%A5%E5%AF%84%E5%8F%96/id951610982?uo=4"
-  },
-  {
-    "id": "jd",
-    "name": "京东快递",
-    "shortName": "京",
-    "color": "#2867D8",
-    "symbol": "shippingbox.fill",
-    "miniProgramName": "京东快递",
-    "website": "https://www.jdwl.com/",
-    "kind": "快递 / 驿站",
-    "featured": true,
-    "appStoreURL": "https://apps.apple.com/cn/app/%E4%BA%AC%E4%B8%9C%E5%BF%AB%E9%80%92-%E5%8F%88%E5%BF%AB%E5%8F%88%E5%87%86/id1550540905?uo=4"
+    "miniProgramName": "兔喜生活",
+    "miniProgramURL": "https://wxmpurl.cn/3VHyC8pPJcq",
+    "website": "https://tuxi.zto.cn/",
+    "kind": "驿站 / 快递柜",
+    "featured": false
   },
   {
     "id": "yishoufa",
@@ -58,7 +34,8 @@
     "miniProgramName": "驿收发",
     "website": "https://www.yshoufa.com/",
     "kind": "驿站",
-    "featured": true
+    "featured": true,
+    "miniProgramURL": "https://wxmpurl.cn/jp2yFvvjJfl"
   },
   {
     "id": "fcbox",
@@ -66,48 +43,23 @@
     "shortName": "丰",
     "color": "#E1BE48",
     "symbol": "square.grid.3x3.fill",
-    "miniProgramName": "丰巢",
+    "miniProgramName": "丰巢丨寄快递丨存包丨洗护丨家政",
     "website": "https://www.fcbox.com/",
     "kind": "快递柜",
     "featured": true,
-    "appStoreURL": "https://apps.apple.com/cn/app/%E4%B8%B0%E5%B7%A2-%E5%AF%84%E5%BF%AB%E9%80%92-%E6%B4%97%E6%8A%A4-%E5%AE%B6%E6%94%BF-%E5%AD%98%E5%8C%85/id1259763050?uo=4"
+    "appStoreURL": "https://apps.apple.com/cn/app/%E4%B8%B0%E5%B7%A2-%E5%AF%84%E5%BF%AB%E9%80%92-%E6%B4%97%E6%8A%A4-%E5%AE%B6%E6%94%BF-%E5%AD%98%E5%8C%85/id1259763050?uo=4",
+    "miniProgramURL": "https://wxmpurl.cn/POwYdR87ZJp"
   },
   {
-    "id": "tuxi",
-    "name": "兔喜生活＋",
-    "shortName": "兔",
-    "color": "#5284D6",
-    "symbol": "shippingbox.fill",
-    "miniProgramName": "兔喜生活",
-    "miniProgramURL": "https://wxmpurl.cn/3VHyC8pPJcq",
-    "website": "https://tuxi.zto.cn/",
-    "kind": "驿站 / 快递柜",
-    "featured": false,
-    "appStoreURL": "https://apps.apple.com/cn/app/%E5%85%94%E5%96%9C%E7%94%9F%E6%B4%BB/id6756415032?uo=4"
-  },
-  {
-    "id": "mamayz",
-    "name": "妈妈驿站",
-    "shortName": "妈",
-    "color": "#9B6DB6",
-    "symbol": "house.fill",
-    "miniProgramName": "妈妈驿站",
-    "website": "https://www.mamayz.com/",
-    "kind": "驿站",
-    "featured": false,
-    "appStoreURL": "https://apps.apple.com/cn/app/%E5%9C%86%E9%80%9A-%E5%A6%88%E5%A6%88%E9%A9%BF%E7%AB%99/id6469097260?uo=4"
-  },
-  {
-    "id": "panda",
-    "name": "熊猫快收",
-    "shortName": "熊",
-    "color": "#788783",
-    "symbol": "shippingbox.fill",
-    "miniProgramName": "熊猫快收",
-    "website": "https://www.84185858.com/",
-    "kind": "驿站",
-    "featured": false,
-    "appStoreURL": "https://apps.apple.com/cn/app/%E7%86%8A%E7%8C%AB%E5%BF%AB%E6%94%B6-%E7%A4%BE%E5%8C%BA%E5%BF%AB%E9%80%92%E4%BB%A3%E6%94%B6%E5%8F%91%E7%A5%9E%E5%99%A8/id1211107464?uo=4"
+    "id": "sms",
+    "name": "短信身份码",
+    "shortName": "信",
+    "color": "#2867D8",
+    "symbol": "message.fill",
+    "miniProgramName": "",
+    "website": "",
+    "kind": "本机短信凭证",
+    "featured": true
   },
   {
     "id": "manual",

@@ -66,34 +66,6 @@
       "sha256": "3375e8a9283e7feed3784a36ae44988329c9418eb39143fcd7d4bf88ace95b2a"
     },
     {
-      "id": "mamayz",
-      "name": "圆通-妈妈驿站",
-      "publisher": "Yuantong Express Delivery Co.,Ltd.",
-      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/6b/e9/9e/6be99ed1-a344-34bb-37e8-360edafc9064/AppIcon-0-0-1x_U007emarketing-0-6-0-85-220.png/512x512bb.jpg",
-      "source": "https://apps.apple.com/cn/app/%E5%9C%86%E9%80%9A-%E5%A6%88%E5%A6%88%E9%A9%BF%E7%AB%99/id6469097260?uo=4",
-      "originalSize": [
-        512,
-        512
-      ],
-      "assetName": "Brand-mamayz",
-      "preview": "/preview/assets/mamayz.png",
-      "sha256": "790ec24977e31b7c1afea134d1bbe3a87533ca749dcf8f828aba4e6771d69dbe"
-    },
-    {
-      "id": "panda",
-      "name": "熊猫快收 - 社区快递代收发神器！",
-      "publisher": "Nanjing Baimixu Supply Chain Management Co., Ltd.",
-      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple116/v4/68/0e/f0/680ef0c9-a84e-4cd6-e922-9a5f9f6a7bbb/AppIcon-0-0-1x_U007emarketing-0-0-0-6-0-0-sRGB-0-0-0-GLES2_U002c0-512MB-85-220-0-0.png/512x512bb.jpg",
-      "source": "https://apps.apple.com/cn/app/%E7%86%8A%E7%8C%AB%E5%BF%AB%E6%94%B6-%E7%A4%BE%E5%8C%BA%E5%BF%AB%E9%80%92%E4%BB%A3%E6%94%B6%E5%8F%91%E7%A5%9E%E5%99%A8/id1211107464?uo=4",
-      "originalSize": [
-        512,
-        512
-      ],
-      "assetName": "Brand-panda",
-      "preview": "/preview/assets/panda.png",
-      "sha256": "58aaabfd7b7c31c43f07abd3f18eda2db7f3ccfa98303cc21b48369fe2b556e5"
-    },
-    {
       "id": "jd",
       "name": "京东快递-又快又准",
       "publisher": "Beijing Jingbangda Trading Co., Ltd.",
@@ -246,20 +218,6 @@
       "assetName": "Brand-jtexpress",
       "preview": "/preview/assets/jtexpress.png",
       "sha256": "270c2dde87e435812f836918b4a15372079f60ade0d4b788f828aa1b143ae60b"
-    },
-    {
-      "id": "pdd",
-      "name": "拼多多 - 多多买菜，百亿补贴",
-      "publisher": "Shanghai Xunmeng Information Technology Co., Ltd.",
-      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/3a/69/bc/3a69bc90-ca16-6b83-adef-d0e7fe1dad31/AppIcon-1x_U007emarketing-0-8-0-0-85-220-0.png/512x512bb.jpg",
-      "source": "https://apps.apple.com/cn/app/id1044283059",
-      "originalSize": [
-        512,
-        512
-      ],
-      "assetName": "Brand-pdd",
-      "preview": "/preview/assets/pdd.png",
-      "sha256": "89ce5d4edd1128537e7c63742635fbc25b743f6bf8822c1942d7b4d3d044f2b9"
     }
   ]
 }

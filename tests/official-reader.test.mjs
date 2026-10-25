@@ -79,8 +79,8 @@ test('支持待取件括号数量，空提示与残留卡片冲突时拒绝清�
 
 test('空快照只处理该官方来源，保留手动与其他来源和已取历史', () => {
   const first = mergeOfficialSnapshot({ version: 1, parcels: [], customProviders: [] }, JSON.parse(JSON.stringify(read(page))));
-  const manual = { ...first.parcels[0], id: 'manual', providerID: 'fcbox', source: 'manual' };
-  const jd = { ...first.parcels[0], id: 'jd', providerID: 'jd', source: 'jd-web' };
+  const manual = { ...first.parcels[0], id: 'manual', providerID: 'fcbox', source: 'manual', trackingNumber:'MANUAL0001', credentials:null };
+  const jd = { ...first.parcels[0], id: 'jd', providerID: 'tuxi', source: 'tuxi-web', trackingNumber:'TUXI0001', credentials:null };
   first.parcels[0].collectedAt = '2026-10-25T00:00:00Z';
   first.parcels.push(manual, jd);
   const empty = JSON.parse(JSON.stringify(read('待取件\n0\n暂无待取件')));
@@ -90,13 +90,16 @@ test('空快照只处理该官方来源，保留手动与其他来源和已取�
   assert.equal(first.parcels.find(p => p.id === manual.id).inLatestOfficialSnapshot, true);
 });
 
-test('其他平台的同运单不得被淘宝合并覆盖', () => {
+test('其他平台同运单归为同一包裹，各来源取件码独立保留', () => {
   const snapshot = JSON.parse(JSON.stringify(read(page)));
   const existing = { ...demoState().parcels[0], id: 'jd-same', providerID: 'jd', isDemo: false,
     carrier: '圆通', trackingNumber: 'TESTYT0000001', source: 'jd-web' };
   const next = mergeOfficialSnapshot({ version: 1, customProviders: [], parcels: [existing] }, snapshot);
-  assert.equal(next.parcels.length, 3);
-  assert.equal(next.parcels.find(p => p.id === existing.id).source, 'jd-web');
+  assert.equal(next.parcels.length, 2);
+  const merged=next.parcels.find(p=>p.id===existing.id);
+  assert.equal(merged.credentials.length,2);
+  assert.ok(merged.credentials.some(p=>p.source==='jd-web'&&p.pickupCode===existing.pickupCode));
+  assert.ok(merged.credentials.some(p=>p.source==='taobao-web'));
 });
 
 test('官方出库延迟时自动刷新不会复活手动已取的记录', () => {

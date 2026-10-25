@@ -5,12 +5,9 @@
 | 标识 | 图片来源页面 | 发布者 |
 |---|---|---|
 | taobao | [淘宝-万能的淘宝！](https://apps.apple.com/cn/app/%E6%B7%98%E5%AE%9D-%E4%B8%87%E8%83%BD%E7%9A%84%E6%B7%98%E5%AE%9D/id387682726?uo=4) | Zhejiang Taobao Network Co.,Ltd |
-| pdd | [拼多多](https://apps.apple.com/cn/app/id1044283059) | Shanghai Xunmeng Information Technology Co., Ltd. |
 | cainiao | [菜鸟—快递物流轻松查寄取](https://apps.apple.com/cn/app/%E8%8F%9C%E9%B8%9F-%E5%BF%AB%E9%80%92%E7%89%A9%E6%B5%81%E8%BD%BB%E6%9D%BE%E6%9F%A5%E5%AF%84%E5%8F%96/id951610982?uo=4) | Hangzhou Cainiao Logistics Information Technology Co., Ltd |
 | fcbox | [丰巢-寄快递 / 洗护 / 家政 / 存包](https://apps.apple.com/cn/app/%E4%B8%B0%E5%B7%A2-%E5%AF%84%E5%BF%AB%E9%80%92-%E6%B4%97%E6%8A%A4-%E5%AE%B6%E6%94%BF-%E5%AD%98%E5%8C%85/id1259763050?uo=4) | Shenzhen Fengchao Technology Co., Ltd. |
 | tuxi | [兔喜生活+](https://apps.apple.com/cn/app/%E5%85%94%E5%96%9C%E7%94%9F%E6%B4%BB/id6756415032?uo=4) | ZTO Express Stock Co., Ltd. |
-| mamayz | [圆通-妈妈驿站](https://apps.apple.com/cn/app/%E5%9C%86%E9%80%9A-%E5%A6%88%E5%A6%88%E9%A9%BF%E7%AB%99/id6469097260?uo=4) | Yuantong Express Delivery Co.,Ltd. |
-| panda | [熊猫快收 - 社区快递代收发神器！](https://apps.apple.com/cn/app/%E7%86%8A%E7%8C%AB%E5%BF%AB%E6%94%B6-%E7%A4%BE%E5%8C%BA%E5%BF%AB%E9%80%92%E4%BB%A3%E6%94%B6%E5%8F%91%E7%A5%9E%E5%99%A8/id1211107464?uo=4) | Nanjing Baimixu Supply Chain Management Co., Ltd. |
 | jd | [京东快递-又快又准](https://apps.apple.com/cn/app/%E4%BA%AC%E4%B8%9C%E5%BF%AB%E9%80%92-%E5%8F%88%E5%BF%AB%E5%8F%88%E5%87%86/id1550540905?uo=4) | Beijing Jingbangda Trading Co., Ltd. |
 | yunda | [韵达快递](https://apps.apple.com/cn/app/%E9%9F%B5%E8%BE%BE%E5%BF%AB%E9%80%92/id1449217869?uo=4) | Shanghai Dongpu Information Technology Co., Ltd. |
 | zto | [中通快递](https://apps.apple.com/cn/app/%E4%B8%AD%E9%80%9A%E5%BF%AB%E9%80%92/id713517954?uo=4) | ZTO Express Stock Co., Ltd. |
@@ -26,3 +23,5 @@
 图片下载于 2026-10-25，实际图片 URL、原尺寸和校验值见 shared/brand-assets.json。App 使用打包素材，不在运行时请求图片服务器。
 
 2026-10-26 新增拼多多官方图标；应用主图标、应用内 logo 和页面预览统一替换为用户提供的新版 `logo2.png`，仅生成所需尺寸，不增加外围白边。
+
+0.6 移除拼多多、妈妈驿站、熊猫快收的专用图标与身份码入口。菜鸟、京东图标仅保留为承运物流/短信发件方标识，不再作为身份码平台。当前共 15 个品牌素材，另有应用主图标与系统短信图形。

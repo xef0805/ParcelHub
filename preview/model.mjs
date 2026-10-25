@@ -1,30 +1,8 @@
 export const STORAGE_KEY = 'parcelhub.preview.v1';
-export const DEFAULT_PROVIDER_IDS = ['taobao', 'pdd', 'tuxi'];
-
-export function enabledProviderIDs(state, all) {
-  const ids = state.enabledProviderIDs ?? [...DEFAULT_PROVIDER_IDS, ...(state.customProviders || []).map(p => p.id),
-    ...Object.values(state.stationCredentials || {}), state.preferredCredentialID];
-  return [...new Set(ids)].filter(id => id !== 'manual' && all.some(p => p.id === id));
-}
-
+export const DEFAULT_PROVIDER_IDS = ['taobao', 'tuxi', 'yishoufa', 'fcbox', 'sms'];
 export function credentialProviders(state, catalog) {
-  const all = [...catalog, ...state.customProviders];
-  const enabled = enabledProviderIDs(state, all);
-  return orderedProviders(catalog, state.customProviders, state.providerOrderIDs || []).filter(p => enabled.includes(p.id));
+  return orderedProviders(catalog, [], state.providerOrderIDs || []).filter(p => DEFAULT_PROVIDER_IDS.includes(p.id));
 }
-
-export function enableProvider(state, id, catalog) {
-  if (!catalog.some(p => p.id === id && id !== 'manual')) throw new Error('这个平台尚未适配');
-  return { ...state, enabledProviderIDs: [...new Set([...enabledProviderIDs(state, [...catalog, ...state.customProviders]), id])] };
-}
-
-export function removeProvider(state, id, catalog) {
-  const stationCredentials = Object.fromEntries(Object.entries(state.stationCredentials || {}).filter(([, providerID]) => providerID !== id));
-  const identityBindings = { ...state.identityBindings }; delete identityBindings[id];
-  return { ...state, enabledProviderIDs: enabledProviderIDs(state, [...catalog, ...state.customProviders]).filter(p => p !== id),
-    stationCredentials, identityBindings, preferredCredentialID: state.preferredCredentialID === id ? null : state.preferredCredentialID };
-}
-
 export function groupCollected(parcels) {
   const groups = new Map();
   for (const parcel of [...parcels].filter(p => p.collectedAt).sort((a, b) => Date.parse(b.collectedAt) - Date.parse(a.collectedAt))) {
@@ -98,48 +76,92 @@ export function validateParcel(input, providers, parcels) {
   if (!clean(input.pickupCode)) return '请填写取件码';
   if (!providers.some(p => p.id === input.providerID)) return '请选择取件平台';
   if (input.title.length > 60 || input.station.length > 100 || input.pickupCode.length > 40) return '填写内容过长，请缩短后重试';
-  if (clean(input.trackingNumber) && parcels.some(p => !p.isDemo && same(p.trackingNumber, input.trackingNumber) && same(p.carrier, input.carrier || ''))) {
-    return '已存在相同快递公司和运单号的记录';
-  }
   return null;
 }
 
-export function addParcel(state, input, providers) {
-  const error = validateParcel(input, providers, state.parcels);
-  if (error) throw new Error(error);
-  const parcel = {
-    id: crypto.randomUUID(), title: clean(input.title), station: clean(input.station),
-    pickupCode: clean(input.pickupCode), providerID: input.providerID, carrier: clean(input.carrier),
-    trackingNumber: clean(input.trackingNumber), addedAt: new Date().toISOString(), collectedAt: null, isDemo: false,
-    source: input.source === 'sms' ? 'sms' : 'manual'
-  };
-  return { ...state, parcels: [parcel, ...state.parcels] };
+export const identityText = value => String(value || '').normalize('NFKC').replace(/\s/g,'').toUpperCase();
+export function smsFingerprint(value) {
+  let hash=14695981039346656037n;
+  for(const byte of new TextEncoder().encode(identityText(value)))hash=BigInt.asUintN(64,(hash^BigInt(byte))*1099511628211n);
+  return hash.toString(16);
 }
-
+export function canonicalCarrier(value) {
+  const text=identityText(value);
+  return [['菜鸟速递',['菜鸟速递','丹鸟']],['韵达',['韵达','YUNDA']],['中通',['中通','ZTO']],['圆通',['圆通','YTO']],['申通',['申通','STO']],['顺丰',['顺丰','S.F.','SF']],['京东',['京东','JDL']],['极兔',['极兔','J&T']],['德邦',['德邦','DEPPON']],['EMS',['EMS']],['邮政',['邮政']]].find(([,names])=>names.some(name=>text.includes(name)))?.[0]||text;
+}
+const fullTracking = value => /^[A-Z0-9-]{6,40}$/.test(identityText(value));
+export const pickupCredentials = parcel => parcel.credentials || [{providerID:parcel.providerID,station:parcel.station,pickupCode:parcel.pickupCode,source:parcel.source||'manual',isCurrent:parcel.inLatestOfficialSnapshot!==false,lastSeenAt:parcel.lastReadAt||parcel.addedAt}];
+export function attachCredential(parcel, credential) {
+  const credentials=pickupCredentials(parcel).map(p=>({...p}));
+  const index=credentials.findIndex(p=>p.providerID===credential.providerID&&p.source===credential.source&&p.station===credential.station);
+  if(index<0)credentials.push(credential);else credentials[index]=credential;
+  return {...parcel,credentials};
+}
+export function matchParcel(incoming, records, now=Date.now()) {
+  const company=canonicalCarrier(incoming.carrier),number=identityText(incoming.trackingNumber);
+  const compatible=p=>!company||!canonicalCarrier(p.carrier)||company===canonicalCarrier(p.carrier);
+  const strong=records.map((p,i)=>({p,i})).filter(({p})=>!p.isDemo&&fullTracking(number)&&fullTracking(p.trackingNumber)&&identityText(p.trackingNumber)===number&&compatible(p));
+  if(strong.length>1)throw new Error('有多条可能相同的记录，请补全快递公司和完整运单号后再导入');
+  if(strong.length)return strong[0].i;
+  const weak=records.map((p,i)=>({p,i})).filter(({p})=>{
+    if(p.isDemo||!compatible(p)||Math.abs(now-Date.parse(p.addedAt))>=72*3600000)return false;
+    if(fullTracking(number)&&fullTracking(p.trackingNumber)&&number!==identityText(p.trackingNumber))return false;
+    const incomingHash=incoming.smsFingerprint||(incoming.smsOriginal?smsFingerprint(incoming.smsOriginal):null);
+    const previousHash=p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null);
+    if(incomingHash&&incomingHash===previousHash)return true;
+    return !p.collectedAt&&!p.deletedAt&&company&&canonicalCarrier(p.carrier)===company&&identityText(p.station)===identityText(incoming.station)&&identityText(p.pickupCode)===identityText(incoming.pickupCode);
+  });
+  if(weak.length>1)throw new Error('有多条可能相同的记录，请补全快递公司和完整运单号后再导入');
+  return weak[0]?.i??-1;
+}
+export function coalesceParcels(records) {
+  const result=[];
+  for(const p of records){
+    const index=!p.isDemo&&fullTracking(p.trackingNumber)&&canonicalCarrier(p.carrier)?result.findIndex(q=>!q.isDemo&&identityText(q.trackingNumber)===identityText(p.trackingNumber)&&canonicalCarrier(q.carrier)===canonicalCarrier(p.carrier)):-1;
+    if(index<0){result.push({...p});continue;}
+    let merged=result[index];for(const credential of pickupCredentials(p))merged=attachCredential(merged,credential);
+    merged.addedAt=Date.parse(merged.addedAt)<Date.parse(p.addedAt)?merged.addedAt:p.addedAt;
+    merged.collectedAt=[merged.collectedAt,p.collectedAt].filter(Boolean).sort((a,b)=>Date.parse(b)-Date.parse(a))[0]||null;
+    merged.deletedAt=merged.deletedAt||p.deletedAt;
+    merged.smsFingerprint=merged.smsFingerprint||p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null);
+    if(p.smsOriginal&&(!merged.smsOriginal||Date.parse(p.smsImportedAt)>Date.parse(merged.smsImportedAt)))Object.assign(merged,{smsOriginal:p.smsOriginal,smsSender:p.smsSender,smsImportedAt:p.smsImportedAt,smsFingerprint:p.smsFingerprint||smsFingerprint(p.smsOriginal)});
+    if(merged.deletedAt)Object.assign(merged,{smsOriginal:null,smsSender:null,smsImportedAt:null});
+    result[index]=merged;
+  }return result;
+}
+export function addParcel(state, input, providers) {
+  const error=validateParcel(input,providers,state.parcels);if(error)throw new Error(error);
+  if(input.smsOriginal?.length>8000)throw new Error('短信内容过长，请只粘贴本条取件通知');
+  const now=new Date().toISOString();
+  const parcel={id:crypto.randomUUID(),title:clean(input.title),station:clean(input.station),pickupCode:clean(input.pickupCode),providerID:input.providerID,
+    carrier:clean(input.carrier),trackingNumber:identityText(input.trackingNumber),addedAt:now,collectedAt:null,isDemo:false,source:input.source==='sms'?'sms':'manual',
+    ...(input.smsOriginal?.trim()?{smsOriginal:input.smsOriginal,smsSender:clean(input.smsSender)||clean(input.carrier)||'取件通知',smsImportedAt:now,smsFingerprint:smsFingerprint(input.smsOriginal)}:{})};
+  const parcels=coalesceParcels(state.parcels),index=matchParcel(parcel,parcels);
+  if(index<0)parcels.unshift(parcel);else{
+    const previous=parcels[index];if(previous.deletedAt)throw new Error('该包裹的已取记录已删除，不会重复导入');
+    let merged={...previous,trackingNumber:previous.trackingNumber||parcel.trackingNumber,carrier:previous.carrier||parcel.carrier};
+    if(parcel.smsOriginal&&identityText(parcel.smsOriginal)!==identityText(previous.smsOriginal))Object.assign(merged,{title:previous.smsOriginal?previous.title:parcel.title,smsOriginal:parcel.smsOriginal,smsSender:parcel.smsSender,smsImportedAt:now,smsFingerprint:parcel.smsFingerprint});
+    parcels[index]=attachCredential(merged,{providerID:parcel.providerID,station:parcel.station,pickupCode:parcel.pickupCode,source:parcel.source,isCurrent:true,lastSeenAt:now});
+  }
+  return {...state,parcels};
+}
+export function deleteCollected(state,id){
+  return {...state,parcels:state.parcels.map(p=>p.id===id&&p.collectedAt?{...p,deletedAt:new Date().toISOString(),smsFingerprint:p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null),smsOriginal:null,smsSender:null,smsImportedAt:null}:p)};
+}
 export function toggleCollected(state, id) {
   return { ...state, parcels: state.parcels.map(p => p.id === id ? { ...p, collectedAt: p.collectedAt ? null : new Date().toISOString() } : p) };
 }
 
-export function addProvider(state, input, providers) {
-  const name = clean(input.name), miniProgramName = clean(input.miniProgramName);
-  if (!name || !miniProgramName) throw new Error('请填写平台名称和微信搜索词');
-  if (name.length > 20 || miniProgramName.length > 40) throw new Error('平台名称或搜索词过长');
-  if (providers.some(p => same(p.name, name))) throw new Error('这个平台已经存在');
-  const provider = { id: `custom-${crypto.randomUUID()}`, name, shortName: [...name][0], miniProgramName,
-    color: '#479981', symbol: 'square.stack.3d.up.fill', kind: '自定义平台', website: '', featured: false };
-  return { ...state, customProviders: [...state.customProviders, provider] };
-}
-
 export function filterParcels(state, providers, { collected = false, providerID = 'all', search = '' } = {}) {
   const term = search.trim().toLocaleLowerCase();
-  return state.parcels.filter(p => Boolean(p.collectedAt) === collected && (collected || p.inLatestOfficialSnapshot !== false) && (providerID === 'all' || p.providerID === providerID) &&
+  return state.parcels.filter(p => !p.deletedAt && Boolean(p.collectedAt) === collected && (collected || (pickupCredentials(p).some(c=>c.source.endsWith('-web')) ? pickupCredentials(p).some(c=>c.source.endsWith('-web')&&c.isCurrent) : p.inLatestOfficialSnapshot !== false)) && (providerID === 'all' || p.providerID === providerID) &&
     (!term || [p.title, p.station, p.pickupCode, p.trackingNumber, p.carrier, providers.find(s => s.id === p.providerID)?.name || '']
       .join(' ').toLocaleLowerCase().includes(term)));
 }
 
 export function validateSavedState(value, catalog) {
   if (!value || value.version !== 1 || !Array.isArray(value.parcels) || !Array.isArray(value.customProviders)) throw new Error('不支持的本地数据格式');
-  const ids = new Set(catalog.map(p => p.id));
+  const ids = new Set([...catalog.map(p => p.id),'pdd','cainiao','jd','mamayz','panda']);
   for (const p of value.customProviders) {
     if (!p || typeof p.id !== 'string' || !p.id.startsWith('custom-') || ids.has(p.id) ||
         !['name', 'shortName', 'miniProgramName', 'kind', 'symbol'].every(k => typeof p[k] === 'string') ||
@@ -155,9 +177,14 @@ export function validateSavedState(value, catalog) {
     if (!p || !['id', 'title', 'station', 'pickupCode', 'carrier', 'trackingNumber', 'addedAt'].every(k => typeof p[k] === 'string') ||
         !ids.has(p.providerID) || typeof p.isDemo !== 'boolean' || parcelIDs.has(p.id) ||
         !(p.collectedAt === null || typeof p.collectedAt === 'string')) throw new Error('包裹记录损坏');
+    for (const key of ['smsOriginal','smsSender','smsImportedAt','smsFingerprint','deletedAt']) {
+      if (p[key] !== undefined && p[key] !== null && typeof p[key] !== 'string') throw new Error('短信记录损坏');
+    }
+    if (p.smsOriginal?.length > 8000 || (p.credentials !== undefined && p.credentials !== null && (!Array.isArray(p.credentials)
+        || p.credentials.some(c=>!c||!['providerID','station','pickupCode','source','lastSeenAt'].every(k=>typeof c[k]==='string')||typeof c.isCurrent!=='boolean')))) throw new Error('取件凭证损坏');
     parcelIDs.add(p.id);
   }
-  return { ...value, parcels: value.parcels.map(p => p.source === 'cainiao-web' ? { ...p, providerID: 'taobao' } : p) };
+  return { ...value, customProviders:[], enabledProviderIDs:DEFAULT_PROVIDER_IDS, stationCredentials:Object.fromEntries(Object.entries(value.stationCredentials||{}).filter(([,id])=>DEFAULT_PROVIDER_IDS.includes(id))),identityBindings:Object.fromEntries(Object.entries(value.identityBindings||{}).filter(([id])=>DEFAULT_PROVIDER_IDS.includes(id))), parcels:coalesceParcels(value.parcels.map(p=>({...p,providerID:p.source==='cainiao-web'?'taobao':catalog.some(c=>c.id===p.providerID)?p.providerID:'manual'}))) };
 }
 
 export function mergeOfficialSnapshot(state, snapshot) {
@@ -170,17 +197,16 @@ export function mergeOfficialSnapshot(state, snapshot) {
       throw new Error('官方记录缺少必要字段，未更新');
     }
   }
-  const keys = rows.map(p => `${p.carrier}:${p.trackingNumber.toUpperCase()}`);
-  if (new Set(keys).size !== keys.length) throw new Error('官方记录出现重复，未更新');
-  const parcels = state.parcels.map(p => ['cainiao-web', 'taobao-web'].includes(p.source) ? { ...p, inLatestOfficialSnapshot: false } : { ...p });
-  for (const row of rows) {
-    const index = parcels.findIndex(p => !p.isDemo && ['taobao', 'cainiao'].includes(p.providerID) && same(p.carrier, row.carrier) && same(p.trackingNumber, row.trackingNumber));
-    const previous = index >= 0 ? parcels[index] : null;
-    const incoming = { ...previous, ...row, id: previous?.id || crypto.randomUUID(),
-      addedAt: previous?.addedAt || snapshot.readAt, collectedAt: previous?.collectedAt || null, isDemo: false,
-      providerID: 'taobao', source: 'taobao-web', lastReadAt: snapshot.readAt, inLatestOfficialSnapshot: true };
-    if (index >= 0) parcels[index] = incoming;
-    else parcels.unshift(incoming);
-  }
-  return { ...state, parcels, lastOfficialReadAt: snapshot.readAt };
+  const keys=rows.map(p=>canonicalCarrier(p.carrier)+':'+identityText(p.trackingNumber));
+  if(new Set(keys).size!==keys.length)throw new Error('官方记录出现重复，未更新');
+  const parcels=coalesceParcels(state.parcels).map(p=>({...p,
+    ...(['taobao-web','cainiao-web'].includes(p.source)?{inLatestOfficialSnapshot:false}:{}),
+    credentials:pickupCredentials(p).map(c=>['taobao-web','cainiao-web'].includes(c.source)?{...c,isCurrent:false}:{...c})}));
+  for(const row of rows){
+    const index=matchParcel(row,parcels,Date.parse(snapshot.readAt)||Date.now()),previous=index>=0?parcels[index]:null;
+    let incoming={...previous,...row,title:previous?.title||row.title,id:previous?.id||crypto.randomUUID(),addedAt:previous?.addedAt||snapshot.readAt,collectedAt:previous?.collectedAt||null,isDemo:false,
+      providerID:'taobao',source:'taobao-web',lastReadAt:snapshot.readAt,inLatestOfficialSnapshot:true};
+    incoming=attachCredential(incoming,{providerID:'taobao',station:row.station,pickupCode:row.pickupCode,source:'taobao-web',isCurrent:true,lastSeenAt:snapshot.readAt});
+    if(index>=0)parcels[index]=incoming;else parcels.unshift(incoming);
+  }return {...state,parcels,lastOfficialReadAt:snapshot.readAt};
 }

@@ -5,6 +5,7 @@ private struct SMSDraft: Decodable {
     let state: String
     let message: String
     let title: String
+    let sender: String?
     let carrier: String
     let providerID: String
     let station: String
@@ -43,121 +44,89 @@ struct AddParcelView: View {
     @State private var number = ""
     @State private var providerID = "manual"
     @State private var sms = ""
+    @State private var sender = ""
     @State private var candidates: [String] = []
     @State private var recognitionNote: String?
     @State private var error: String?
-    private enum Field: Hashable { case title, station, code }
-    @FocusState private var focused: Field?
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    ZStack(alignment: .topLeading) {
-                        if sms.isEmpty { Text("在此粘贴完整取件短信，自动识别取件码与物流公司")
-                            .font(.subheadline).foregroundStyle(.tertiary).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
-                        TextEditor(text: $sms).frame(minHeight: 130).accessibilityLabel("完整取件短信")
-                            .scrollContentBackground(.hidden)
-                    }
-                    PasteButton(payloadType: String.self) { texts in sms = texts.first ?? "" }
-                    if let recognitionNote { Label(recognitionNote, systemImage: "sparkles").font(.caption).foregroundStyle(.secondary) }
-                    if candidates.count > 1 {
-                        Picker("本次添加的取件码", selection: $code) {
-                            Text("请选择").tag("")
-                            ForEach(candidates, id: \.self) { Text($0).tag($0) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Label("粘贴取件短信", systemImage: "text.bubble.fill").font(.headline)
+                            Spacer()
+                            Text("本机识别").font(.caption2).foregroundStyle(Palette.blue)
                         }
-                    }
-                } footer: {
-                    Text("只在本机识别你主动粘贴的短信。未写地点时沿用该物流公司最近一次的地点；保存前可修改。短信原文不会保存。")
+                        ZStack(alignment: .topLeading) {
+                            if sms.isEmpty { Text("粘贴完整通知，自动填写取件码、物流和地点")
+                                .font(.subheadline).foregroundStyle(.tertiary).padding(.top, 9).padding(.leading, 5).allowsHitTesting(false) }
+                            TextEditor(text: $sms).frame(minHeight: 135).scrollContentBackground(.hidden).accessibilityLabel("完整取件短信")
+                        }.padding(6).background(Palette.paper, in: RoundedRectangle(cornerRadius: 14))
+                        HStack { PasteButton(payloadType: String.self) { texts in sms = texts.first ?? "" }; Spacer() }
+                        if let recognitionNote { Label(recognitionNote, systemImage: "sparkles").font(.caption).foregroundStyle(.secondary) }
+                    }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
+                    VStack(alignment: .leading, spacing: 15) {
+                        Label("核对取件信息", systemImage: "shippingbox").font(.headline)
+                        if candidates.count > 1 {
+                            Picker("选择本次取件码", selection: $code) {
+                                Text("请选择").tag("")
+                                ForEach(candidates, id: \.self) { Text($0).tag($0) }
+                            }
+                        }
+                        field("取件码", placeholder: "必填", value: $code, monospaced: true)
+                        field("取件地点", placeholder: "必填，请核对本次地点", value: $station)
+                        field("包裹名称", placeholder: "按日期自动编号", value: $title)
+                        Picker("取件平台", selection: $providerID) {
+                            ForEach(store.providers.filter { $0.id != "sms" }) { Text($0.name).tag($0.id) }
+                        }.font(.subheadline)
+                    }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
+                    VStack(alignment: .leading, spacing: 15) {
+                        Label("物流与去重", systemImage: "number").font(.headline)
+                        field("快递公司", placeholder: "例如：中通、韵达", value: $carrier)
+                        field("完整快递单号", placeholder: "建议补全，尾号不能跨平台去重", value: $number, monospaced: true)
+                        Text("相同完整单号和物流公司会合并为一个包裹，各平台取件码分别保留。短信没有完整单号时，只能保守核对原文、地点和取件码。").font(.caption).foregroundStyle(.secondary)
+                    }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
+                    Text("保存后，短信原文及导入时间仅保留在本机，可用“短信身份码”展示。不会自动读取短信收件箱。").font(.caption).foregroundStyle(.secondary)
+                }.padding(20)
+            }.background(Palette.paper).scrollDismissesKeyboard(.interactively)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    Button { save() } label: { Text("保存包裹").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 9) }
+                        .buttonStyle(.borderedProminent).padding(.horizontal, 20).padding(.vertical, 12).background(Palette.paper)
                 }
-                Section("核对包裹信息") {
-                    TextField("包裹名称", text: $title).focused($focused, equals: .title)
-                    Picker("取件平台", selection: $providerID) { ForEach(store.providers) { Text($0.name).tag($0.id) } }
-                    TextField("取件地点（必填）", text: $station).focused($focused, equals: .station)
-                    TextField("取件码（必填）", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled().focused($focused, equals: .code)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let error { Label(error, systemImage: "exclamationmark.circle.fill").font(.caption.weight(.medium))
+                        .foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Palette.card) }
                 }
-                Section("物流信息") {
-                    TextField("快递公司", text: $carrier)
-                    TextField("运单号（选填）", text: $number).textInputAutocapitalization(.never).autocorrectionDisabled()
-                }
-                Section { Text("短信记录加入同一待取清单。尚未连接对应平台时，取件后需手动标记已取。").font(.caption) }
-            }.safeAreaInset(edge: .top, spacing: 0) {
-                if let error {
-                    Label(error, systemImage: "exclamationmark.circle.fill")
-                        .font(.caption.weight(.medium)).foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                        .background(Color.orange.opacity(0.12)).accessibilityAddTraits(.updatesFrequently)
-                }
-            }.navigationTitle("手动导入包裹").navigationBarTitleDisplayMode(.inline)
-                .scrollDismissesKeyboard(.interactively)
+                .navigationTitle("手动导入包裹").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
                 .onAppear { if title.isEmpty { title = SMSDraftReader.read("", history: store.parcels)?.title ?? "" } }
-                .onChange(of: title) { _, _ in error = nil }
-                .onChange(of: station) { _, _ in error = nil }
-                .onChange(of: code) { _, _ in error = nil }
                 .onChange(of: sms) { _, text in
                     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                    guard let draft = SMSDraftReader.read(text, history: store.parcels) else {
-                        recognitionNote = "暂时无法识别，请手动核对填写"; return
-                    }
-                    title = draft.title
-                    station = draft.station
-                    code = draft.pickupCode
-                    carrier = draft.carrier
-                    number = draft.trackingNumber
+                    guard let draft = SMSDraftReader.read(text, history: store.parcels) else { recognitionNote = "识别失败，请核对填写"; return }
+                    title = draft.title; station = draft.station; code = draft.pickupCode; carrier = draft.carrier
+                    number = draft.trackingNumber; sender = draft.sender ?? draft.carrier
                     providerID = store.provider(draft.providerID) == nil ? "manual" : draft.providerID
-                    candidates = draft.codeCandidates
-                    recognitionNote = draft.message
-                    error = nil
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("保存") {
-                            error = store.add(title: title, providerID: providerID, station: station, code: code, carrier: carrier, trackingNumber: number,
-                                              source: sms.isEmpty ? "manual" : "sms")
-                            if error == nil { dismiss() }
-                            else if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { focused = .title }
-                            else if station.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { focused = .station }
-                            else if code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { focused = .code }
-                        }
-                    }
+                    candidates = draft.codeCandidates; recognitionNote = draft.message; error = nil
                 }
         }
     }
-}
-
-struct AddProviderView: View {
-    @EnvironmentObject private var store: ParcelStore
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("选择平台即可添加入口。部分小程序仍需绑定官方跳转链接，不同平台的身份码不能互换。")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Section("可添加平台") {
-                    if store.availableProviders.isEmpty { Text("已添加全部现有平台，更多入口会逐步更新。").font(.subheadline).foregroundStyle(.secondary) }
-                    ForEach(store.availableProviders) { provider in
-                        Button {
-                            store.enableProvider(provider.id)
-                        } label: {
-                            HStack(spacing: 14) {
-                                ProviderMark(provider: provider)
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(provider.name).foregroundStyle(.primary)
-                                    Text(provider.identityURL != nil ? "官方身份码网页" : provider.miniProgramURL != nil ? "已核实小程序首页链接" : "小程序入口待绑定")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "plus.circle.fill")
-                            }.frame(maxWidth: .infinity).contentShape(Rectangle())
-                        }.buttonStyle(PressFeedbackStyle())
-                    }
-                }
-            }.navigationTitle("添加其他平台").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
-                }
+    private func field(_ label: String, placeholder: String, value: Binding<String>, monospaced: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            TextField(placeholder, text: value).font(monospaced ? .system(.body, design: .monospaced) : .body)
+                .textInputAutocapitalization(.never).autocorrectionDisabled().padding(12)
+                .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12))
+                .onChange(of: value.wrappedValue) { _, _ in error = nil }
+        }
+    }
+    private func save() {
+        error = store.add(title: title, providerID: providerID, station: station, code: code, carrier: carrier, trackingNumber: number,
+                          source: sms.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "manual" : "sms", smsOriginal: sms, smsSender: sender)
+        if error == nil {
+            if !sms.isEmpty && providerID == "manual" && store.stationCredentials[station] == nil { store.rememberCredential("sms", for: station) }
+            dismiss()
         }
     }
 }

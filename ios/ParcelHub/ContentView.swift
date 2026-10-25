@@ -19,8 +19,9 @@ struct ContentView: View {
 
 struct ProviderMark: View {
     let provider: PickupProvider
+    var size: CGFloat = 44
     var body: some View {
-        BrandMark(asset: "Brand-" + provider.id, fallback: provider.symbol, label: provider.name)
+        BrandMark(asset: "Brand-" + provider.id, fallback: provider.symbol, label: provider.name, size: size)
     }
 }
 
@@ -28,11 +29,12 @@ struct BrandMark: View {
     let asset: String
     let fallback: String
     let label: String
+    var size: CGFloat = 44
     var body: some View {
         Group {
             if UIImage(named: asset) != nil { Image(asset).resizable().scaledToFill() }
             else { Image(systemName: fallback).font(.title3).foregroundStyle(Palette.blue) }
-        }.frame(width: 44, height: 44)
+        }.frame(width: size, height: size)
             .background(Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 13)).accessibilityLabel(label)
     }
@@ -67,6 +69,8 @@ struct PackagesView: View {
     @State private var adding = false
     @Environment(\.openURL) private var openURL
     @State private var launching = false
+    @State private var smsStation: String?
+    @State private var showingSMS = false
     @EnvironmentObject private var sync: OfficialSyncController
     @State private var credentialRequest: CredentialRequest?
     @State private var selectedProvider: PickupProvider?
@@ -78,6 +82,7 @@ struct PackagesView: View {
     }
 
     private func openCredential(_ provider: PickupProvider) {
+        if provider.id == "sms" { showingSMS = true; return }
         guard !launching else { return }
         launching = true
         Task { @MainActor in
@@ -101,32 +106,21 @@ struct PackagesView: View {
                         }
                     }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 16))
 
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("\(store.pending.count)").font(.system(size: 52, weight: .semibold, design: .rounded))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("件待取包裹").font(.headline)
-                            Text("\(Set(store.pending.map(\.station)).count) 个取件地点").font(.caption)
-                        }
-                        Spacer()
-                        Image(systemName: "shippingbox.fill").font(.largeTitle).opacity(0.6)
-                    }
-                    .foregroundStyle(.white).padding(24).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(red: 0.10, green: 0.35, blue: 0.82).gradient, in: RoundedRectangle(cornerRadius: 26))
-
-                    HStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text("\(store.pending.count)").font(.system(size: 42, weight: .semibold, design: .rounded))
+                                Text("件待取包裹").font(.subheadline.weight(.semibold))
+                            }
+                            Text("\(Set(store.pending.map(\.station)).count) 个取件地点").font(.caption).opacity(0.85)
+                        }.foregroundStyle(.white).padding(20).frame(maxWidth: .infinity, minHeight: 114, alignment: .leading)
+                            .background(Color(red: 0.10, green: 0.35, blue: 0.82).gradient, in: RoundedRectangle(cornerRadius: 23))
                         Button { adding = true } label: {
-                            Label("手动导入包裹", systemImage: "text.bubble")
-                                .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 50)
-                                .background(Palette.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+                            VStack(spacing: 8) {
+                                Image(systemName: "text.badge.plus").font(.title3)
+                                Text("手动导入包裹").font(.caption.weight(.semibold))
+                            }.frame(width: 106, height: 90).background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
                         }
-                        Button {
-                            if let provider = store.preferredCredential { openCredential(provider) }
-                            else { credentialRequest = CredentialRequest() }
-                        } label: {
-                            Label("打开身份码", systemImage: "barcode.viewfinder")
-                                .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 50)
-                                .foregroundStyle(.white).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14))
-                        }.disabled(launching)
                     }
                     if launching { ProgressView("正在打开小程序…").font(.caption) }
                     VStack(alignment: .leading, spacing: 6) {
@@ -149,10 +143,10 @@ struct PackagesView: View {
                                 Text(station).font(.title3.bold()).foregroundStyle(.primary)
                                 Spacer(minLength: 12)
                                 Button {
-                                    if let id = store.stationCredentials[station], let provider = store.provider(id) { openCredential(provider) }
+                                    if let id = store.stationCredentials[station], let provider = store.provider(id) { smsStation = station; openCredential(provider) }
                                     else { credentialRequest = CredentialRequest(station: station) }
                                 } label: {
-                                    Text(store.stationCredentials[station].flatMap { store.provider($0)?.name }.map { "\($0)身份码" } ?? "选择身份码")
+                                    Text(store.stationCredentials[station].flatMap { store.provider($0)?.name }.map { $0.hasSuffix("身份码") ? $0 : "\($0)身份码" } ?? "选择身份码")
                                         .font(.caption).padding(.horizontal, 10).padding(.vertical, 7)
                                         .background(Palette.blue.opacity(0.09), in: Capsule())
                                         .overlay(Capsule().stroke(Palette.blue.opacity(0.2), lineWidth: 0.7))
@@ -172,6 +166,7 @@ struct PackagesView: View {
             .background(Palette.paper).foregroundStyle(Palette.ink)
             .navigationTitle("涂涂取件").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $adding) { AddParcelView() }
+            .sheet(isPresented: $showingSMS) { SMSCredentialListView(station: smsStation) }
             .sheet(item: $credentialRequest, onDismiss: {
                 if let providerAfterBinding {
                     openCredential(providerAfterBinding)
@@ -179,6 +174,7 @@ struct PackagesView: View {
                 }
             }) { request in
                 CredentialPickerView(station: request.station, onChoose: { provider in
+                    smsStation = request.station
                     providerAfterBinding = provider
                     credentialRequest = nil
                 })
@@ -192,6 +188,7 @@ struct ParcelCard: View {
     let parcel: Parcel
     @EnvironmentObject private var store: ParcelStore
     @State private var copied = false
+    @State private var showingSMS = false
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
@@ -216,11 +213,20 @@ struct ParcelCard: View {
                 Spacer()
                 Button(copied ? "已复制" : "复制") { UIPasteboard.general.string = parcel.pickupCode; copied = true }.font(.caption)
             }
+            let alternatives = parcel.pickupCredentials.filter { $0.isCurrent && $0.pickupCode != parcel.pickupCode }
+            ForEach(Array(alternatives.enumerated()), id: \.offset) { _, credential in
+                Text("\(store.provider(credential.providerID)?.name ?? "其他来源")取件码 · \(credential.pickupCode)")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if parcel.hasSMS {
+                Button { showingSMS = true } label: { Label("短信身份码", systemImage: "message").font(.caption.weight(.medium)) }
+            }
             if let date = parcel.lastReadAt {
                 Text("官方清单更新于 \(date.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
+            .sheet(isPresented: $showingSMS) { NavigationStack { SMSCredentialView(parcelID: parcel.id).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingSMS = false } } } } }
     }
 }
 
@@ -236,14 +242,13 @@ struct CredentialPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var selected: PickupProvider?
-    @State private var adding = false
     @State private var sorting = false
     @State private var launching = false
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    Text(station.map { "为「\($0)」选择身份码，下次可直接打开。" } ?? "按驿站要求选择平台。点击排序后，按住右侧把手上下拖动。")
+                    Text(station.map { "为「\($0)」选择身份码，下次可直接打开。" } ?? "四个官方入口分别绑定；短信件可直接展示保存的通知原文。")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Section {
@@ -263,10 +268,10 @@ struct CredentialPickerView: View {
                             }
                         } label: {
                             HStack(spacing: 14) {
-                                ProviderMark(provider: provider)
+                                ProviderMark(provider: provider, size: 62)
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text(provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码").font(.headline).foregroundStyle(.primary)
-                                    Text(provider.identityURL != nil ? "App 内打开官方身份码" : store.identityBindings[provider.id]?.confirmed == true ? "已绑定 · 直接打开小程序" : provider.miniProgramURL != nil ? "首次试开并绑定小程序" : "入口待绑定")
+                                    Text(provider.id == "sms" ? provider.name : provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码").font(.headline).foregroundStyle(.primary)
+                                    Text(provider.id == "sms" ? "查看本机保存的取件短信" : provider.identityURL != nil ? "App 内打开官方身份码" : store.identityBindings[provider.id]?.confirmed == true ? "已绑定 · 直接打开小程序" : provider.miniProgramURL != nil ? "首次试开并绑定小程序" : "入口待绑定")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -274,11 +279,8 @@ struct CredentialPickerView: View {
                                 else if !sorting { Image(systemName: "chevron.right").font(.caption) }
                             }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(PressFeedbackStyle()).disabled(launching)
-                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                if !sorting { Button("删除", role: .destructive) { withAnimation { store.removeProvider(provider.id) } } }
-                            }
                             .contextMenu {
-                                if provider.id != "taobao" { Button("管理小程序绑定") { selected = provider } }
+                                if !["taobao", "sms"].contains(provider.id) { Button("管理小程序绑定") { selected = provider } }
                             }
                     }.onMove { offsets, destination in store.moveProviders(from: offsets, to: destination) }
                         .deleteDisabled(true)
@@ -286,7 +288,6 @@ struct CredentialPickerView: View {
                 }
                 Section {
                     HStack {
-                        Button { adding = true } label: { Label("添加其他平台", systemImage: "plus.circle") }.disabled(sorting)
                         Spacer()
                         Button(sorting ? "完成" : "排序") { withAnimation { sorting.toggle() } }
                             .font(.subheadline).foregroundStyle(.secondary)
@@ -299,7 +300,6 @@ struct CredentialPickerView: View {
                     if showsDone { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
                 }
                 .fullScreenCover(item: $selected) { PickupEntryView(provider: $0) }
-                .sheet(isPresented: $adding) { AddProviderView() }
         }
     }
 }
@@ -321,6 +321,8 @@ struct PickupEntryView: View {
     var body: some View {
         if provider.id == "taobao" {
             OfficialPickupView(initialPage: 1)
+        } else if provider.id == "sms" {
+            SMSCredentialListView()
         } else {
             NavigationStack {
                 ScrollView {
@@ -362,7 +364,7 @@ struct PickupEntryView: View {
                                     }
                                 }
                             } label: {
-                                HStack { if trying { ProgressView().tint(.white) }; Text(trying ? "正在打开…" : "试开\(provider.miniProgramName)") }.frame(maxWidth: .infinity)
+                                HStack { if trying { ProgressView().tint(.white) }; Text(trying ? "正在打开…" : "试开\(provider.name)") }.frame(maxWidth: .infinity)
                             }.buttonStyle(.borderedProminent).controlSize(.large).disabled(trying)
                             if testedValue == link.trimmingCharacters(in: .whitespacesAndNewlines) {
                                 Text(note ?? "请确认进入了正确小程序。").font(.caption).foregroundStyle(.secondary)
@@ -396,10 +398,8 @@ struct PickupEntryView: View {
                         }
                         Text("获取方式：微信打开「\(provider.miniProgramName)」→ … → 添加到桌面；若进入 Safari，复制地址栏链接。只有“复制链接”时得到的可能是口令。不要粘贴身份码、密码或验证码。")
                             .font(.caption).foregroundStyle(.secondary)
-                        if provider.id == "jd" { Text("京东现场扫码入口可能带站点信息，应优先使用本站提供的入口。").font(.caption).foregroundStyle(.secondary) }
-                        if provider.id == "pdd" { Text("拼多多与兔喜单独保留。本平台的通用身份码入口尚未核实，不能用兔喜码替代。").font(.caption).foregroundStyle(.secondary) }
                         if provider.id == "fcbox" { Text("丰巢支持通知取件码和官方 App 开柜；这里绑定的是小程序入口。").font(.caption).foregroundStyle(.secondary) }
-                        if ["cainiao", "jd", "fcbox", "pdd"].contains(provider.id),
+                        if provider.id == "fcbox",
                            let link = provider.appStoreURL, let url = URL(string: link) {
                             Link("官方 App（App Store）", destination: url).font(.subheadline)
                         }
@@ -452,20 +452,25 @@ struct CollectedParcelsView: View {
         Array(Set(records.compactMap(\.collectedAt).map { Calendar.current.startOfDay(for: $0) })).sorted(by: >)
     }
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                if records.isEmpty { ContentUnavailableView(search.isEmpty ? "暂无已取记录" : "没有匹配的记录", systemImage: "checkmark.circle") }
-                ForEach(days, id: \.self) { day in
-                    let daily = records.filter { Calendar.current.isDate($0.collectedAt ?? .distantPast, inSameDayAs: day) }
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(day.formatted(date: .abbreviated, time: .omitted)).font(.title3.bold())
-                        ForEach(Array(Set(daily.map(\.station))).sorted(), id: \.self) { station in
-                            Text(station).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                            ForEach(daily.filter { $0.station == station }) { ParcelCard(parcel: $0) }
+        List {
+            if records.isEmpty { ContentUnavailableView(search.isEmpty ? "暂无已取记录" : "没有匹配的记录", systemImage: "checkmark.circle") }
+            ForEach(days, id: \.self) { day in
+                let daily = records.filter { Calendar.current.isDate($0.collectedAt ?? .distantPast, inSameDayAs: day) }
+                Section(day.formatted(date: .abbreviated, time: .omitted)) {
+                    ForEach(Array(Set(daily.map(\.station))).sorted(), id: \.self) { station in
+                        Text(station).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                        ForEach(daily.filter { $0.station == station }) { parcel in
+                            ParcelCard(parcel: parcel).listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                                .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                    Button(role: .destructive) { withAnimation { store.deleteCollected(parcel.id) } } label: {
+                                        Image(systemName: "trash.fill")
+                                    }.accessibilityLabel("删除已取记录")
+                                }
                         }
                     }
                 }
-            }.padding(20)
+            }
         }.safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -484,22 +489,23 @@ struct SettingsView: View {
         List {
             Section("同步与账号") {
                 Toggle("前台自动刷新待取清单", isOn: $store.autoSyncEnabled)
+                NavigationLink("到站监控与接入状态") { ArrivalMonitoringView() }
                 Button("淘宝登录与官方清单") { officialLogin = true }
                 Text("打开或返回 App 时自动检查，前台每两分钟检查一次；登录失效或读取异常时保留原记录。下拉待取清单可手动重试。") .font(.caption).foregroundStyle(.secondary)
                 Text("当前仅淘宝清单支持同步。iOS 后台运行由系统调度，本版不承诺锁屏后持续更新。") .font(.caption).foregroundStyle(.secondary)
             }
             Section("短信与本地记录") {
-                Text("朋友寄件也可添加：在短信中复制完整通知，点击主页的“手动导入包裹”。自动识别取件码，沿用该物流公司最近一次地点，按日期编号。确认后只保存包裹字段。")
-                Text("不会自动读取短信收件箱，也不保存短信原文。短信件和未接通平台的包裹，取完后需手动标记。")
+                Text("朋友寄件也可添加：在短信中复制完整通知，点击主页的“手动导入包裹”。自动识别取件码，沿用该物流公司最近一次地点，按日期编号。确认后在本机保存短信原文与导入时间。")
+                Text("不会自动读取短信收件箱。短信原文仅保存在本机，删除已取记录时会清除原文。短信件和未接通平台的包裹，取完后需手动标记。")
             }
             Section("身份码") {
                 NavigationLink("地点身份码绑定") { StationCredentialSettingsView() }
                 NavigationLink("小程序入口绑定") { MiniProgramSettingsView() }
-                Text("不同平台凭证单独保留。身份码页右滑删除入口，长按可管理绑定。兔喜已核实官方首页跳转链接，仍需首次试开确认；其他平台逐项适配。")
+                Text("不同平台凭证单独保留。四个官方平台与短信凭证固定显示，长按可管理小程序绑定。兔喜、驿收发、丰巢已核实官方首页链接，首次需试开确认；清单读取能力单独验证。")
             }
             Section("关于涂涂取件") {
                 Label("蓝白配色，跟随系统深色模式", systemImage: "circle.lefthalf.filled")
-                Text("版本 0.5.0 · 本地开发版")
+                Text("版本 0.6.0 · 本地开发版")
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
@@ -750,7 +756,7 @@ struct MiniProgramSettingsView: View {
     @State private var selected: PickupProvider?
     var body: some View {
         List {
-            ForEach(store.credentialProviders.filter { $0.id != "taobao" }) { provider in
+            ForEach(store.credentialProviders.filter { !["taobao", "sms"].contains($0.id) }) { provider in
                 Button { selected = provider } label: {
                     HStack {
                         ProviderMark(provider: provider)

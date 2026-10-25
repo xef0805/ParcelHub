@@ -15,10 +15,10 @@
     })[0];
   const platform = [
     ['yishoufa', /驿收发/], ['fcbox', /丰巢/], ['tuxi', /兔喜/],
-    ['mamayz', /妈妈驿站/], ['panda', /熊猫快收/], ['cainiao', /菜鸟驿站/]
+    ['taobao', /淘宝取件/]
   ].find(([, pattern]) => pattern.test(content))?.[0];
   // 承运快递不等于末端平台：没有明确平台时沿用历史，否则留在“其他取件点”。
-  const providerID = platform || recent?.providerID || 'manual';
+  const providerID = platform || (['taobao','tuxi','yishoufa','fcbox'].includes(recent?.providerID) ? recent.providerID : 'manual');
   const codeCandidates = [];
   const addCode = candidate => {
     const code = candidate.replace(/\s+/g, '').replace(/[-]+$/, '');
@@ -43,11 +43,13 @@
   const local = new Date();
   day ||= `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
   const compactDay = day.replace(/-/g, '');
-  const titles = history.filter(p => !p.isDemo).map(p => String(p.title || ''));
+  const shortDay = compactDay.slice(4);
+  const sender = text.match(/^[\s]*[【\[]([^】\]\n]{1,30})[】\]]/)?.[1] || carrier || '取件通知';
+  const titles = history.filter(p => !p.isDemo && (!p.addedAt || new Date(p.addedAt).getFullYear() === Number(compactDay.slice(0,4)))).map(p => String(p.title || ''));
   let serial = 1;
   for (const title of titles) {
     const suffix = title.startsWith(compactDay) ? title.slice(compactDay.length)
-      : title.startsWith(day + ' ') ? title.slice(day.length + 1) : '';
+      : title.startsWith(day + ' ') ? title.slice(day.length + 1) : title.startsWith(shortDay) ? title.slice(shortDay.length) : '';
     const match = suffix.match(/^(?:包裹|快件)(\d+)号$/);
     if (match && Number.isSafeInteger(Number(match[1]))) serial = Math.max(serial, Number(match[1]) + 1);
   }
@@ -56,6 +58,6 @@
     : state === 'needs_code' ? '未明确识别取件码，请核对短信或手动填写'
     : stationSource === 'history' ? `已沿用上次${carrier}的取件地点，请确认本次仍在此处`
     : stationSource === 'missing' ? '已识别取件码，请补充取件地点' : '已从短信识别，请核对后保存';
-  return { state, message, title: `${compactDay}包裹${serial}号`, carrier, providerID, station, stationSource,
+  return { state, message, title: `${shortDay}包裹${serial}号`, sender, carrier, providerID, station, stationSource,
     pickupCode: codeCandidates.length === 1 ? codeCandidates[0] : '', codeCandidates, trackingNumber: tracking };
 })
