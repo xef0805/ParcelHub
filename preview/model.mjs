@@ -76,7 +76,7 @@ export function validateSavedState(value, catalog) {
         !(p.collectedAt === null || typeof p.collectedAt === 'string')) throw new Error('包裹记录损坏');
     parcelIDs.add(p.id);
   }
-  return value;
+  return { ...value, parcels: value.parcels.map(p => p.source === 'cainiao-web' ? { ...p, providerID: 'taobao' } : p) };
 }
 
 export function mergeOfficialSnapshot(state, snapshot) {

@@ -44,4 +44,3 @@ struct OfficialPageRead: Codable, Equatable {
     var expectedCount: Int?
     var readAt: String
 }
-
