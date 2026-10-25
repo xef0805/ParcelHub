@@ -5,6 +5,10 @@
 	};
 	"objectVersion" = 56;
 	"objects" = {
+		"74A4CB3DF439EB822886AB0F" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.javascript"; "path" = "../shared/sms-reader.js"; "sourceTree" = "SOURCE_ROOT"; };
+		"0C51E554DE21868633AB109C" = { "isa" = "PBXBuildFile"; "fileRef" = "74A4CB3DF439EB822886AB0F"; };
+		"98A7477EE627990C018C8A4B" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "OfficialSyncController.swift"; "sourceTree" = "<group>"; };
+		"C4C04A5FDDB182793FD89CF9" = { "isa" = "PBXBuildFile"; "fileRef" = "98A7477EE627990C018C8A4B"; };
 		"C950A57C79FB1E6AB2CF4D8D" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "OfficialSnapshotMerge.swift"; "sourceTree" = "<group>"; };
 		"CF7CF65F4A8FD410E8E288DE" = { "isa" = "PBXBuildFile"; "fileRef" = "C950A57C79FB1E6AB2CF4D8D"; };
 		"A709BD905E9F11444EF1E173" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "ParcelRecords.swift"; "sourceTree" = "<group>"; };
@@ -120,6 +124,7 @@
 				"C564D8E6C880B7838D5AF748",
 				"1699DAB57DC7B3E9F2A88F46",
 				"7395177560DEA8A83E28CFB8",
+				"98A7477EE627990C018C8A4B",
 				"C950A57C79FB1E6AB2CF4D8D",
 				"A709BD905E9F11444EF1E173",
 				"618BD4A958228A573C7BF3F6",
@@ -143,6 +148,7 @@
 				"085ED06E573690BA3A56BC1E",
 				"3A66A12C91214A95C007431D",
 				"0BB79887AE99B766C0781F2F",
+				"74A4CB3DF439EB822886AB0F",
 				"6F7199ED7B63CDA338A0FB82",
 			);
 			"sourceTree" = "<group>";
@@ -156,6 +162,7 @@
 				"FD825685184AF3166D56C1B1",
 				"082928DDC4F7413852174A12",
 				"B76675C4F086F082128D12A2",
+				"C4C04A5FDDB182793FD89CF9",
 				"CF7CF65F4A8FD410E8E288DE",
 				"5DABCE9168C546927819264D",
 			);
@@ -166,6 +173,7 @@
 			"buildActionMask" = 2147483647;
 			"files" = (
 				"07C2DCD88FA3BD22E740D436",
+				"0C51E554DE21868633AB109C",
 				"999FF37E9C5A0FFB78E1CDE2",
 				"B14A8354BF18ECEBADE93920",
 				"CF52F5494423AF6A38CC3F1F",
@@ -222,8 +230,8 @@
 				"INFOPLIST_FILE" = "ParcelHub/Info.plist";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
-				"MARKETING_VERSION" = "0.3.0";
-				"CURRENT_PROJECT_VERSION" = "2";
+				"MARKETING_VERSION" = "0.4.0";
+				"CURRENT_PROJECT_VERSION" = "3";
 				"SWIFT_EMIT_LOC_STRINGS" = "YES";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"LD_RUNPATH_SEARCH_PATHS" = (
@@ -242,8 +250,8 @@
 				"INFOPLIST_FILE" = "ParcelHub/Info.plist";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
-				"MARKETING_VERSION" = "0.3.0";
-				"CURRENT_PROJECT_VERSION" = "2";
+				"MARKETING_VERSION" = "0.4.0";
+				"CURRENT_PROJECT_VERSION" = "3";
 				"SWIFT_EMIT_LOC_STRINGS" = "YES";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"LD_RUNPATH_SEARCH_PATHS" = (

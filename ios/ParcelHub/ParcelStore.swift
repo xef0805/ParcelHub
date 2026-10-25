@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 @MainActor
 final class ParcelStore: ObservableObject {
@@ -7,6 +8,11 @@ final class ParcelStore: ObservableObject {
     @Published private(set) var parcels: [Parcel] = []
     @Published var storageWarning: String?
     @Published private(set) var stationCredentials: [String: String] = [:]
+    @Published private(set) var lastOfficialReadAt: Date?
+    @Published private(set) var preferredCredentialID: String?
+    @Published var autoSyncEnabled = true {
+        didSet { defaults.set(autoSyncEnabled, forKey: "parcelhub.auto-sync.v1") }
+    }
 
     private let defaults = UserDefaults.standard
     private let parcelKey = "parcelhub.parcels.v1"
@@ -33,6 +39,16 @@ final class ParcelStore: ObservableObject {
                 persistParcels()
             }
             stationCredentials = defaults.dictionary(forKey: stationCredentialKey) as? [String: String] ?? [:]
+            let savedOrder = defaults.stringArray(forKey: "parcelhub.provider-order.v1") ?? []
+            var seen = Set<String>()
+            let ordered = savedOrder.compactMap { id -> PickupProvider? in
+                guard seen.insert(id).inserted else { return nil }
+                return providers.first { $0.id == id }
+            }
+            providers = ordered + providers.filter { !seen.contains($0.id) }
+            autoSyncEnabled = defaults.object(forKey: "parcelhub.auto-sync.v1") as? Bool ?? true
+            lastOfficialReadAt = defaults.object(forKey: "parcelhub.last-official-read.v1") as? Date
+            preferredCredentialID = defaults.string(forKey: "parcelhub.preferred-credential.v1")
         } catch {
             storageWarning = "本地数据读取失败，暂不覆盖原记录。请保留现有数据并反馈问题。"
         }
@@ -42,10 +58,34 @@ final class ParcelStore: ObservableObject {
     // 隐藏旧演示记录，但保留存储，不删除用户原有数据。
     var pending: [Parcel] { parcels.filter { !$0.isDemo && !$0.isCollected && $0.inLatestOfficialSnapshot != false } }
     var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected } }
+    var credentialProviders: [PickupProvider] { providers.filter { $0.id != "manual" } }
+    var preferredCredential: PickupProvider? {
+        if let id = preferredCredentialID, let provider = credentialProviders.first(where: { $0.id == id }) { return provider }
+        let bound = Set(stationCredentials.values).compactMap { id in credentialProviders.first { $0.id == id } }
+        return bound.count == 1 ? bound[0] : nil
+    }
+
+    func preferCredential(_ id: String) {
+        guard credentialProviders.contains(where: { $0.id == id }) else { return }
+        preferredCredentialID = id
+        defaults.set(id, forKey: "parcelhub.preferred-credential.v1")
+    }
+
+    func moveProviders(from offsets: IndexSet, to destination: Int) {
+        var ordered = credentialProviders
+        ordered.move(fromOffsets: offsets, toOffset: destination)
+        providers = ordered + providers.filter { $0.id == "manual" }
+        defaults.set(ordered.map(\.id), forKey: "parcelhub.provider-order.v1")
+    }
 
     func rememberCredential(_ providerID: String, for station: String) {
-        guard provider(providerID) != nil, !station.isEmpty else { return }
+        guard providerID != "manual", provider(providerID) != nil, !station.isEmpty else { return }
         stationCredentials[station] = providerID
+        defaults.set(stationCredentials, forKey: stationCredentialKey)
+    }
+
+    func forgetCredential(for station: String) {
+        stationCredentials.removeValue(forKey: station)
         defaults.set(stationCredentials, forKey: stationCredentialKey)
     }
 
@@ -54,13 +94,17 @@ final class ParcelStore: ObservableObject {
         do {
             parcels = try OfficialSnapshotMerge.applying(snapshot, to: parcels)
             persistParcels()
+            if storageWarning == nil {
+                lastOfficialReadAt = Date()
+                defaults.set(lastOfficialReadAt, forKey: "parcelhub.last-official-read.v1")
+            }
             return storageWarning
         } catch {
             return error.localizedDescription
         }
     }
 
-    func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String) -> String? {
+    func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String, source: String = "manual") -> String? {
         if storageWarning != nil { return "本地数据异常，暂时无法保存新记录" }
         if let error = ParcelDraftValidator.validate(title: title, station: station, code: code, providerID: providerID, providers: providers) { return error }
         let number = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -72,7 +116,7 @@ final class ParcelStore: ObservableObject {
         }) { return "已存在相同快递公司和运单号的记录" }
         parcels.insert(Parcel(id: UUID(), title: title.trimmingCharacters(in: .whitespacesAndNewlines), providerID: providerID,
                               station: station.trimmingCharacters(in: .whitespacesAndNewlines), pickupCode: code.trimmingCharacters(in: .whitespacesAndNewlines),
-                              carrier: company, trackingNumber: number, addedAt: Date(), isDemo: false), at: 0)
+                              carrier: company, trackingNumber: number, addedAt: Date(), isDemo: false, source: source), at: 0)
         persistParcels()
         return nil
     }

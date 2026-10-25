@@ -98,3 +98,12 @@ test('其他平台的同运单不得被淘宝合并覆盖', () => {
   assert.equal(next.parcels.length, 3);
   assert.equal(next.parcels.find(p => p.id === existing.id).source, 'jd-web');
 });
+
+test('官方出库延迟时自动刷新不会复活手动已取的记录', () => {
+  const snapshot = JSON.parse(JSON.stringify(read(page)));
+  const first = mergeOfficialSnapshot({ version: 1, parcels: [], customProviders: [] }, snapshot);
+  first.parcels[0].collectedAt = '2026-10-25T01:00:00Z';
+  const next = mergeOfficialSnapshot(first, snapshot);
+  assert.equal(filterParcels(next, []).length, 1);
+  assert.equal(filterParcels(next, [], { collected: true }).length, 1);
+});

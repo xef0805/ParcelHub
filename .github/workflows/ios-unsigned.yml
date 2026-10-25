@@ -20,7 +20,7 @@ jobs:
           swiftc ios/ParcelHub/ParcelRecords.swift ios/ParcelHub/OfficialSnapshotMerge.swift tests/OfficialSnapshotTests.swift -o /tmp/parcelhub-snapshot-tests
           /tmp/parcelhub-snapshot-tests
       - name: Verify official page reader
-        run: node --test tests/model.test.mjs tests/official-reader.test.mjs
+        run: node --test tests/*.test.mjs
       - name: Build for iPhone without credentials
         run: >-
           xcodebuild -project ios/ParcelHub.xcodeproj

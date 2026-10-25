@@ -27,6 +27,8 @@ struct OfficialSnapshotTests {
         let updated = try OfficialSnapshotMerge.applying(snapshot, to: [legacy, other])
         precondition(updated.count == 2 && updated[0].id == legacy.id && updated[0].providerID == "taobao")
         precondition(updated[1].source == "jd-web")
+        let delayed = try OfficialSnapshotMerge.applying(snapshot, to: [collected])
+        precondition(delayed[0].collectedAt == now, "Auto refresh must preserve manual collection while official status is delayed")
         for invalid in [
             OfficialPageRead(state: "error", message: "请求超时", parcels: [], expectedCount: 0, readAt: "test"),
             OfficialPageRead(state: "ready", message: "", parcels: [], expectedCount: nil, readAt: "test"),

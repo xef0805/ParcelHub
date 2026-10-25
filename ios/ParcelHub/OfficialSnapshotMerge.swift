@@ -29,7 +29,7 @@ enum OfficialSnapshotMerge {
             parcel.providerID = "taobao"
             parcel.station = row.station
             parcel.pickupCode = row.pickupCode
-            parcel.collectedAt = nil
+            // 用户手动标记已取后，官方出库状态可能延迟；自动刷新不能把它反复恢复。
             parcel.source = "taobao-web"
             parcel.inLatestOfficialSnapshot = true
             parcel.lastReadAt = now

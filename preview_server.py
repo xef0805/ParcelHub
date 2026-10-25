@@ -13,7 +13,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     def allowed_path(self):
         path = unquote(urlsplit(self.path).path)
-        return '..' not in path.split('/') and (path.startswith('/preview/') or path == '/shared/catalog.json')
+        return '..' not in path.split('/') and (path.startswith('/preview/') or path in (
+            '/shared/catalog.json', '/shared/sms-reader.js', '/shared/brand-assets.json'))
 
     def do_HEAD(self):
         if not self.allowed_path():
@@ -67,7 +68,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='拾件本机预览')
+    parser = argparse.ArgumentParser(description='涂涂取件本机预览')
     parser.add_argument('--no-open', action='store_true')
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
@@ -83,7 +84,7 @@ def main():
     if server is None:
         raise SystemExit('无法启动本地预览：端口均被占用，请使用 --port 指定其他端口。')
     url = f'http://127.0.0.1:{server.server_port}/preview/'
-    print(f'拾件预览已启动：{url}', flush=True)
+    print(f'涂涂取件预览已启动：{url}', flush=True)
     print('关闭此窗口或按 Ctrl+C 停止。数据保存在当前浏览器。', flush=True)
     if not args.no_open:
         webbrowser.open(url)

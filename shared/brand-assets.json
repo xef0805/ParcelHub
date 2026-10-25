@@ -1,0 +1,250 @@
+{
+  "app": {
+    "name": "涂涂取件",
+    "source": "User-provided image",
+    "originalSize": [
+      1254,
+      1254
+    ]
+  },
+  "brands": [
+    {
+      "id": "taobao",
+      "name": "淘宝-万能的淘宝！",
+      "publisher": "Zhejiang Taobao Network Co.,Ltd",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/d4/b1/4a/d4b14a2f-73e2-a36d-49e7-ff8492fa7e06/AppIcon-0-0-1x_U007emarketing-0-10-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E6%B7%98%E5%AE%9D-%E4%B8%87%E8%83%BD%E7%9A%84%E6%B7%98%E5%AE%9D/id387682726?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-taobao",
+      "preview": "/preview/assets/taobao.png",
+      "sha256": "c24d7a86e7b4bc78e2b59465e9ae69ddccb04cc5ec99e56a217fcfc512e3e218"
+    },
+    {
+      "id": "cainiao",
+      "name": "菜鸟—快递物流轻松查寄取",
+      "publisher": "Hangzhou Cainiao Logistics Information Technology Co., Ltd",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/c3/60/95/c36095e1-89c6-68b7-8d78-776b41bf9369/AppIcon-0-0-1x_U007epad-0-1-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E8%8F%9C%E9%B8%9F-%E5%BF%AB%E9%80%92%E7%89%A9%E6%B5%81%E8%BD%BB%E6%9D%BE%E6%9F%A5%E5%AF%84%E5%8F%96/id951610982?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-cainiao",
+      "preview": "/preview/assets/cainiao.png",
+      "sha256": "863fb7543d2451992193ffebe743384b96035278727431e76df78471f3ff9b2e"
+    },
+    {
+      "id": "fcbox",
+      "name": "丰巢-寄快递|洗护|家政|存包",
+      "publisher": "Shenzhen Fengchao Technology Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/b6/34/cd/b634cd6a-90f7-f32f-3583-5de56884b023/AppIcon-0-0-1x_U007emarketing-0-6-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E4%B8%B0%E5%B7%A2-%E5%AF%84%E5%BF%AB%E9%80%92-%E6%B4%97%E6%8A%A4-%E5%AE%B6%E6%94%BF-%E5%AD%98%E5%8C%85/id1259763050?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-fcbox",
+      "preview": "/preview/assets/fcbox.png",
+      "sha256": "69763a4c0d88534390c5edeecc6c923e8aa437458979f3e1a8fa413e981c5820"
+    },
+    {
+      "id": "tuxi",
+      "name": "兔喜生活+",
+      "publisher": "ZTO Express Stock Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/ab/4e/25/ab4e2559-7e62-909a-3350-fd043ffd5ae8/AppIcon-0-0-1x_U007emarketing-0-7-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E5%85%94%E5%96%9C%E7%94%9F%E6%B4%BB/id6756415032?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-tuxi",
+      "preview": "/preview/assets/tuxi.png",
+      "sha256": "3375e8a9283e7feed3784a36ae44988329c9418eb39143fcd7d4bf88ace95b2a"
+    },
+    {
+      "id": "mamayz",
+      "name": "圆通-妈妈驿站",
+      "publisher": "Yuantong Express Delivery Co.,Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/6b/e9/9e/6be99ed1-a344-34bb-37e8-360edafc9064/AppIcon-0-0-1x_U007emarketing-0-6-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E5%9C%86%E9%80%9A-%E5%A6%88%E5%A6%88%E9%A9%BF%E7%AB%99/id6469097260?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-mamayz",
+      "preview": "/preview/assets/mamayz.png",
+      "sha256": "790ec24977e31b7c1afea134d1bbe3a87533ca749dcf8f828aba4e6771d69dbe"
+    },
+    {
+      "id": "panda",
+      "name": "熊猫快收 - 社区快递代收发神器！",
+      "publisher": "Nanjing Baimixu Supply Chain Management Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple116/v4/68/0e/f0/680ef0c9-a84e-4cd6-e922-9a5f9f6a7bbb/AppIcon-0-0-1x_U007emarketing-0-0-0-6-0-0-sRGB-0-0-0-GLES2_U002c0-512MB-85-220-0-0.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E7%86%8A%E7%8C%AB%E5%BF%AB%E6%94%B6-%E7%A4%BE%E5%8C%BA%E5%BF%AB%E9%80%92%E4%BB%A3%E6%94%B6%E5%8F%91%E7%A5%9E%E5%99%A8/id1211107464?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-panda",
+      "preview": "/preview/assets/panda.png",
+      "sha256": "58aaabfd7b7c31c43f07abd3f18eda2db7f3ccfa98303cc21b48369fe2b556e5"
+    },
+    {
+      "id": "jd",
+      "name": "京东快递-又快又准",
+      "publisher": "Beijing Jingbangda Trading Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/91/d0/37/91d03773-103a-68e8-1eeb-44c56f141338/NationalAppIcon-0-0-1x_U007ephone-0-1-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E4%BA%AC%E4%B8%9C%E5%BF%AB%E9%80%92-%E5%8F%88%E5%BF%AB%E5%8F%88%E5%87%86/id1550540905?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-jd",
+      "preview": "/preview/assets/jd.png",
+      "sha256": "d75232c7f5117fd97e983859bc20dc78eb6cbe34bf0b561a856fe0523e40701d"
+    },
+    {
+      "id": "yunda",
+      "name": "韵达快递",
+      "publisher": "Shanghai Dongpu Information Technology Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/5c/5b/f0/5c5bf02a-ddaf-0fc1-a446-d1122a7345f7/AppIcon-0-0-1x_U007emarketing-0-6-0-85-220.jpeg/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E9%9F%B5%E8%BE%BE%E5%BF%AB%E9%80%92/id1449217869?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-yunda",
+      "preview": "/preview/assets/yunda.png",
+      "sha256": "4b00b4a4a75d6f5666b439989f39d812adc1fcb8d934479e70770ac7bb83afb6"
+    },
+    {
+      "id": "zto",
+      "name": "中通快递",
+      "publisher": "ZTO Express Stock Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/02/10/0e/02100e42-b541-b450-6dae-7cafe543c32b/AppIcon-0-0-1x_U007emarketing-0-11-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E4%B8%AD%E9%80%9A%E5%BF%AB%E9%80%92/id713517954?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-zto",
+      "preview": "/preview/assets/zto.png",
+      "sha256": "7dc8a494b312855e1efa97a6579d7368b71a4c44dec802d0cb8ec04b566a4d11"
+    },
+    {
+      "id": "sto",
+      "name": "申通快递",
+      "publisher": "Shentong Express Co., Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/9c/ef/ec/9cefec3f-d134-8a81-05a2-824a02621bce/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E7%94%B3%E9%80%9A%E5%BF%AB%E9%80%92/id6450159953?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-sto",
+      "preview": "/preview/assets/sto.png",
+      "sha256": "76fa523f36ea491a6dbadc78308b6acc32cd8917ae824d7956fa6858c49d7714"
+    },
+    {
+      "id": "yto",
+      "name": "圆通快递",
+      "publisher": "Yuantong Express Delivery Co.,Ltd.",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/3b/f6/75/3bf675e5-3c17-c7db-fd65-0b688eeb51f8/AppIcon-0-0-1x_U007emarketing-0-6-0-0-sRGB-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E5%9C%86%E9%80%9A%E5%BF%AB%E9%80%92/id997202015?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-yto",
+      "preview": "/preview/assets/yto.png",
+      "sha256": "990f4027dc84790349f96190b014bf7613802afbb9ee797154ef6fd2056d5d21"
+    },
+    {
+      "id": "sf",
+      "name": "顺丰速运-快递查寄收 不止是快",
+      "publisher": "S.F. Express (Hong Kong) Limited",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/c4/43/e4/c443e452-f7d4-de38-f5c3-2bb85eb6ed74/AppIcon-0-1x_U007ephone-0-1-85-220-0.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E9%A1%BA%E4%B8%B0%E9%80%9F%E8%BF%90-%E5%BF%AB%E9%80%92%E6%9F%A5%E5%AF%84%E6%94%B6-%E4%B8%8D%E6%AD%A2%E6%98%AF%E5%BF%AB/id899529698?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-sf",
+      "preview": "/preview/assets/sf.png",
+      "sha256": "ce6470ef50d3b44f71ebae9c0cc7889e1d6a716c627649358e28861deb3a3d3b"
+    },
+    {
+      "id": "deppon",
+      "name": "德邦快递-德邦官方账号 超过3公斤，大件发德邦",
+      "publisher": "CHINA DEPPON LOGISTICS Co., LTD.,",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/cb/c6/d4/cbc6d4f3-6ae6-f066-e6a8-4791e6553634/AppIcon-0-0-1x_U007epad-0-11-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E5%BE%B7%E9%82%A6%E5%BF%AB%E9%80%92-%E5%BE%B7%E9%82%A6%E5%AE%98%E6%96%B9%E8%B4%A6%E5%8F%B7-%E8%B6%85%E8%BF%873%E5%85%AC%E6%96%A4-%E5%A4%A7%E4%BB%B6%E5%8F%91%E5%BE%B7%E9%82%A6/id914237562?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-deppon",
+      "preview": "/preview/assets/deppon.png",
+      "sha256": "cbb4aec612c005d387a2d3976d054178b0a0194c0dd0f43da006c16800e1f0e5"
+    },
+    {
+      "id": "ems",
+      "name": "邮政EMS",
+      "publisher": "CHINA POSTAL EXPRESS & LOGIST ICS CO LTD",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/a9/25/5b/a9255b37-f2be-e5e2-0bd4-b93dde7e153a/AppIcon-1x_U007emarketing-0-10-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E9%82%AE%E6%94%BFems/id1242727213?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-ems",
+      "preview": "/preview/assets/ems.png",
+      "sha256": "32a1c1ce22cf5f82e87bafc655889182b2b417505c5254145a5dadead39c5a78"
+    },
+    {
+      "id": "post",
+      "name": "中国邮政",
+      "publisher": "China Post Group Company",
+      "url": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/7a/cb/3f/7acb3fe4-f786-e744-3073-947857b2c644/AppIcon-0-0-1x_U007emarketing-0-11-0-85-220.png/512x512bb.jpg",
+      "source": "https://apps.apple.com/cn/app/%E4%B8%AD%E5%9B%BD%E9%82%AE%E6%94%BF/id661697937?uo=4",
+      "originalSize": [
+        512,
+        512
+      ],
+      "assetName": "Brand-post",
+      "preview": "/preview/assets/post.png",
+      "sha256": "726a2542c5ad528bd77bfb260232942c03d3c2dc7690ffc7b9042384cc7ea8d1"
+    },
+    {
+      "id": "yishoufa",
+      "name": "驿收发",
+      "publisher": "驿收发官方网站",
+      "url": "https://www.yshoufa.com/favicons.ico?22",
+      "source": "https://www.yshoufa.com/",
+      "originalSize": [
+        32,
+        32
+      ],
+      "assetName": "Brand-yishoufa",
+      "preview": "/preview/assets/yishoufa.png",
+      "sha256": "b82202a0e65ad7425ea3ba32b938edadaf8170cefd90241ce4522786f898891d"
+    },
+    {
+      "id": "jtexpress",
+      "name": "极兔速递",
+      "publisher": "极兔速递官方网站",
+      "url": "https://www.jtexpress.com.cn/images/logo.ico",
+      "source": "https://www.jtexpress.com.cn/",
+      "originalSize": [
+        128,
+        128
+      ],
+      "assetName": "Brand-jtexpress",
+      "preview": "/preview/assets/jtexpress.png",
+      "sha256": "270c2dde87e435812f836918b4a15372079f60ade0d4b788f828aa1b143ae60b"
+    }
+  ]
+}

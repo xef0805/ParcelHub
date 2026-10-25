@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { demoState, addParcel, addProvider, toggleCollected, filterParcels, validateSavedState } from '../preview/model.mjs';
+import { demoState, addParcel, addProvider, toggleCollected, filterParcels, validateSavedState, orderedProviders, reorderProvider, bindStationCredential, boundStationProvider, preferredCredentialProvider } from '../preview/model.mjs';
 
 const catalog = JSON.parse(await readFile(new URL('../shared/catalog.json', import.meta.url), 'utf8'));
 const draft = { title: '真实手动记录', station: '测试取件点', providerID: 'fcbox', pickupCode: '000012', carrier: '顺丰', trackingNumber: 'SF00001' };
@@ -47,4 +47,37 @@ test('损坏或未知版本的持久化数据不得静默覆盖', () => {
 test('空白必填项与不存在的平台被拦截', () => {
   assert.throws(() => addParcel(demoState(), { ...draft, pickupCode: ' ' }, catalog), /取件码/);
   assert.throws(() => addParcel(demoState(), { ...draft, providerID: 'missing' }, catalog), /取件平台/);
+});
+
+test('身份码排序保存顺序、过滤历史无效项，新增平台仍出现', () => {
+  const sorted = orderedProviders(catalog, [], ['jd', 'taobao', 'jd', 'missing']);
+  assert.equal(sorted[0].id, 'jd');
+  assert.equal(sorted[1].id, 'taobao');
+  assert.equal(sorted.some(p => p.id === 'manual'), false);
+  const next = reorderProvider(demoState(), sorted, 'taobao', 0);
+  assert.equal(orderedProviders(catalog, [], next.providerOrderIDs)[0].id, 'taobao');
+  assert.equal(orderedProviders([...catalog, { id: 'new' }], [], next.providerOrderIDs).at(-1).id, 'new');
+  assert.equal(reorderProvider(next, sorted, 'missing', 0), next);
+});
+
+test('地点首次绑定、保存恢复、更换和解绑互不影响其他地点', () => {
+  const original = demoState();
+  const first = bindStationCredential(original, '北门驿站', 'taobao', catalog);
+  const second = bindStationCredential(first, '南门驿站', 'jd', catalog);
+  const restored = JSON.parse(JSON.stringify(second));
+  assert.equal(boundStationProvider(restored, '北门驿站', catalog).id, 'taobao');
+  const changed = bindStationCredential(restored, '北门驿站', 'cainiao', catalog);
+  assert.equal(boundStationProvider(changed, '北门驿站', catalog).id, 'cainiao');
+  assert.equal(boundStationProvider(changed, '南门驿站', catalog).id, 'jd');
+  assert.equal(boundStationProvider(bindStationCredential(changed, '北门驿站', '', catalog), '北门驿站', catalog), undefined);
+  assert.equal(original.stationCredentials, undefined);
+  assert.throws(() => bindStationCredential(first, '北门驿站', 'manual', catalog));
+});
+
+test('已有常用身份码可直接打开，多种地点绑定时不擅自猜测', () => {
+  const one = { stationCredentials: { '北门': 'taobao', '南门': 'taobao' } };
+  assert.equal(preferredCredentialProvider(one, catalog).id, 'taobao');
+  const multiple = { stationCredentials: { '北门': 'taobao', '南门': 'jd' } };
+  assert.equal(preferredCredentialProvider(multiple, catalog), undefined);
+  assert.equal(preferredCredentialProvider({ ...multiple, preferredCredentialID: 'jd' }, catalog).id, 'jd');
 });

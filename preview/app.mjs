@@ -1,188 +1,189 @@
-import { STORAGE_KEY, addParcel, addProvider, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot } from './model.mjs';
-
-const paths = {
-  box: '<path d="m3 7 9-4 9 4-9 5zM3 7v10l9 5 9-5V7M12 12v10M7 5l9 5"/>',
-  scan: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M7 8v8m3-8v8m4-8v8m3-8v8"/>',
-  settings: '<path d="M4 7h5m5 0h6M4 17h9m5 0h2"/><circle cx="11" cy="7" r="2"/><circle cx="15" cy="17" r="2"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
-  pin: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/>',
-  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
-  undo: '<path d="M8 7H4V3m0 4a9 9 0 1 1-1 8"/>',
-  copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
-  arrow: '<path d="M5 19 19 5M7 5h12v12"/>',
-  chevron: '<path d="m9 5 7 7-7 7"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
-  leaf: '<path d="M20 3c-9-1-16 4-15 11s11 8 14 0c1-3 1-7 1-11ZM5 20 15 9M9 15l-1-5m4 2 5 1"/>',
-  shield: '<path d="m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6zM8 11l3 3 5-6"/>',
-  close: '<path d="m6 6 12 12M18 6 6 18"/>'
-};
-const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.box}</svg>`;
-const esc = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+import { STORAGE_KEY, addParcel, addProvider, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot, orderedProviders, reorderProvider, bindStationCredential, boundStationProvider, preferredCredentialProvider } from './model.mjs';
 const $ = selector => document.querySelector(selector);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const modal = $('#modal');
-let state, catalog = [], readonly = false;
-let filters = { collected: false, providerID: 'all', search: '' };
+const testing = new URLSearchParams(location.search).get('test') === '1';
+const key = testing ? 'tutu.preview.test.v1' : STORAGE_KEY;
+let catalog = [], assets = [], state, readSMS, sorting = false, readonly = false, currentPage = 'packages', dragState;
 let toastTimer;
 const providers = () => [...catalog, ...state.customProviders];
-const mark = p => `<span class="provider-mark" style="--provider-color:${esc(p.color)}">${esc(p.shortName)}</span>`;
-
-function notify(message) {
-  $('#toast').textContent = message;
-  $('#toast').hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 2500);
-}
-
+const ordered = () => orderedProviders(catalog, state.customProviders, state.providerOrderIDs || []);
+const mark = id => {
+  const brand = assets.find(x => x.id === id);
+  return `<span class="mark">${brand ? `<img src="${esc(brand.preview)}" alt="${esc(brand.name)}">` : '▣'}</span>`;
+};
+const carrierID = company => [['韵达','yunda'],['中通','zto'],['申通','sto'],['圆通','yto'],['顺丰','sf'],['京东','jd'],['极兔','jtexpress'],['德邦','deppon'],['EMS','ems'],['邮政','post'],['菜鸟','cainiao']].find(([name]) => company.toUpperCase().includes(name))?.[1];
+function notify(text) { $('#toast').textContent = text; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 3000); }
 function save(next) {
-  if (readonly) throw new Error('本地数据异常，暂时无法保存，请保留现有数据并反馈问题');
-  // 写入成功后才更新页面内存，避免保存失败却显示为成功。
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  state = next;
-  render();
+  if (readonly) throw new Error('本地数据异常，暂不覆盖原记录');
+  localStorage.setItem(key, JSON.stringify(next)); state = next; render();
 }
-
-async function copy(text) {
-  try { await navigator.clipboard.writeText(text); notify('已复制'); }
-  catch { notify('复制受浏览器限制，请手动选中复制'); }
+function page(name) {
+  currentPage = ['packages','providers','my'].includes(name) ? name : 'packages';
+  document.querySelectorAll('.page').forEach(p => p.hidden = p.id !== `page-${currentPage}`);
+  document.querySelectorAll('[data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === currentPage));
+  history.replaceState(null, '', `${location.pathname}${location.search}#${currentPage}`); window.scrollTo({top:0});
 }
-
-function switchPage(page) {
-  document.querySelectorAll('.page').forEach(el => { el.hidden = el.id !== `page-${page}`; });
-  document.querySelectorAll('[data-page]').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-  history.replaceState(null, '', `#${page}`);
-  window.scrollTo({ top: 0 });
+function card(p) {
+  const provider = providers().find(x => x.id === p.providerID);
+  return `<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier) || p.providerID)}<div class="parcel-info"><h3>${esc(p.title)}</h3><p>${esc(p.carrier || '快递')} · ${p.source === 'sms' ? '短信导入' : esc(provider?.name || '本地记录')}</p></div><button class="collect-button" data-collect="${esc(p.id)}" aria-label="${p.collectedAt ? '恢复待取' : '我已取件'}">${p.collectedAt ? '恢复待取' : '我已取件'}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong><button data-copy="${esc(p.id)}">复制</button></div></article>`;
 }
-
 function render() {
-  const list = providers();
-  // 旧版演示记录仍保留在存储中，但不再混入实际使用页面。
-  const records = state.parcels.filter(p => !p.isDemo && (p.collectedAt || p.inLatestOfficialSnapshot !== false));
-  const pending = records.filter(p => !p.collectedAt);
+  const records = {...state, parcels:state.parcels.filter(p => !p.isDemo)};
+  const pending = filterParcels(records, providers());
   $('#pending-count').textContent = pending.length;
   $('#station-count').textContent = new Set(pending.map(p => p.station)).size;
-  $('#nav-count').textContent = pending.length;
-  $('#pending-tab-count').textContent = pending.length;
-  $('#collected-tab-count').textContent = records.length - pending.length;
-  $('#pending-tab').classList.toggle('selected', !filters.collected);
-  $('#collected-tab').classList.toggle('selected', filters.collected);
-  $('#provider-filters').innerHTML = [{ id: 'all', name: '全部' }, ...list.filter(p => records.some(x => x.providerID === p.id))]
-    .map(p => `<button data-filter="${esc(p.id)}" class="${filters.providerID === p.id ? 'active' : ''}" aria-pressed="${filters.providerID === p.id}">${esc(p.name)}</button>`).join('');
-  const visible = filterParcels({ ...state, parcels: records }, list, filters);
+  const visible = filterParcels(records, providers(), {search:$('#search').value});
   const stations = [...new Set(visible.map(p => p.station))];
-  $('#parcel-list').innerHTML = visible.length ? stations.map(station => {
-    const parcels = visible.filter(p => p.station === station);
-    return `<section class="station-group"><h2 class="station-heading">${icon('pin')}${esc(station)}<span>${parcels.length} 件</span></h2>${parcels.map(p => {
-      const provider = list.find(s => s.id === p.providerID);
-      return `<article class="parcel-card"><div class="parcel-top">${mark(provider)}<div class="parcel-info"><h3>${esc(p.title)}</h3><p>${esc(p.carrier || '快递')} · 来源${esc(provider.name)}<span class="record-tag">${['cainiao-web', 'taobao-web'].includes(p.source) ? '官方页面读取' : '手动添加'}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}" aria-label="${p.collectedAt ? '恢复待取' : '标记已取'}：${esc(p.title)}" title="${p.collectedAt ? '恢复待取' : '标记已取'}">${icon(p.collectedAt ? 'undo' : 'check')}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong><button class="copy-button" data-copy="${esc(p.id)}">${icon('copy')}复制</button></div><div class="parcel-bottom"><button class="entry-link" data-entry="${esc(provider.id)}">${icon('scan')}官方取件入口</button><span>${['cainiao-web', 'taobao-web'].includes(p.source) ? '本次验证快照 · 非后台实时同步' : '状态需手动更新'}</span></div></article>`;
-    }).join('')}</section>`;
-  }).join('') : `<div class="empty">${icon('box')}<h3>${filters.search ? '没有找到匹配的本地记录' : filters.collected ? '还没有本地已取记录' : '官方待取件尚未读取'}</h3><p>${filters.search ? '试试其他关键词，或切换平台筛选。' : '这不代表你没有包裹。请先使用上方的官方待取件入口。'}</p></div>`;
-  $('#quick-providers').innerHTML = catalog.filter(p => p.featured).map(p => `<button class="quick-provider" data-entry="${esc(p.id)}">${mark(p)}<span><strong>${esc(p.name)}</strong><small>${p.identityURL ? '打开官方身份码 · 需登录' : '尚未打通 · 手动指引'}</small></span>${icon('chevron')}</button>`).join('');
-  $('#provider-grid').innerHTML = list.map(p => `<button class="provider-tile" data-entry="${esc(p.id)}">${mark(p)}<h2>${esc(p.name)}</h2><p>${esc(p.kind)} · ${p.identityURL ? '官方网页入口' : '尚未连接'}</p><span class="tile-foot">${p.identityURL ? '打开官方身份码' : '查看打开指引'} ${icon('arrow')}</span></button>`).join('');
+  $('#parcel-list').innerHTML = visible.length ? stations.map(station => `<section class="station-group"><div class="station-tools"><h3 class="station-heading">⌖ ${esc(station)}</h3><button class="text-button" data-station="${esc(station)}">${esc(boundStationProvider(state, station, providers())?.name ? boundStationProvider(state, station, providers()).name + '身份码' : '选择身份码')}</button></div>${visible.filter(p => p.station === station).map(card).join('')}</section>`).join('') : '<div class="empty"><strong>暂无待取包裹</strong>短信通知可点击右上角添加<br>已取历史已移至“我的”</div>';
+  const collected = filterParcels(records, providers(), {collected:true});
+  $('#collected-count').textContent = collected.length;
+  $('#collected-list').innerHTML = collected.length ? collected.map(card).join('') : '<div class="empty">暂无已取记录</div>';
+  const all = ordered();
+  $('#provider-grid').classList.toggle('sorting', sorting);
+  $('#provider-grid').innerHTML = all.map(p => `<div class="provider-tile" ${sorting ? `data-drag="${esc(p.id)}"` : `role="button" tabindex="0" data-entry="${esc(p.id)}"`}>
+    ${mark(p.id)}<div class="detail"><strong>${esc(p.name)}${p.id === 'fcbox' ? '取件' : '身份码'}</strong><small>${p.identityURL ? 'App 内官方网页' : '官方小程序 / App 入口'}</small></div>${sorting ? `<button class="sort-handle" data-drag-handle="${esc(p.id)}" aria-label="拖动${esc(p.name)}排序"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>` : '<span>›</span>'}</div>`).join('');
+  $('#sort-providers').textContent = sorting ? '完成' : '排序';
 }
-
-function openModal(content) {
-  $('#modal-content').innerHTML = content;
-  modal.showModal();
-}
-const modalHeading = title => `<div class="modal-head"><h2 id="modal-title">${title}</h2><button class="close-modal" aria-label="关闭">${icon('close')}</button></div>`;
-
+function open(content) { $('#modal-content').innerHTML = content; if (!modal.open) modal.showModal(); }
+const heading = title => `<div class="modal-head"><h2>${esc(title)}</h2><button class="close-modal" aria-label="关闭">✕</button></div>`;
+async function copy(text) { try { await navigator.clipboard.writeText(text); notify('已复制'); } catch { notify('请手动选中复制'); } }
 function entry(id) {
-  const provider = providers().find(p => p.id === id);
-  if (!provider) return;
-  if (provider.id === 'taobao' && provider.identityURL) {
-    openModal(`${modalHeading('淘宝取件')}<div class="entry-provider">${mark(provider)}<div><strong>官方身份码入口</strong><p>已验证：本人登录后显示身份码和真实待取件</p></div></div><p class="entry-warning">使用淘宝官方页面生成和刷新身份码，不在本地复制、缓存或重画条形码。不同浏览器需要分别登录；身份码是否可出库，以驿站要求为准。</p><div class="entry-actions"><a class="button primary official-action" href="${esc(provider.identityURL)}" target="_blank" rel="noopener noreferrer">打开官方身份码 ↗</a><a class="button secondary official-action" href="${esc(provider.parcelsURL)}" target="_blank" rel="noopener noreferrer">打开官方待取件 ↗</a></div><p class="form-note" style="margin-top:16px">当前浏览器清单使用本次验证读取的快照。iPhone 版可在官方页面内读取；网页预览仍使用本机快照。</p>`);
+  const provider = providers().find(p => p.id === id); if (!provider) return;
+  if (state.preferredCredentialID !== id) save({ ...state, preferredCredentialID: id });
+  if (provider.identityURL) {
+    if (modal.open) modal.close();
+    window.open(provider.identityURL, '_blank', 'noopener,noreferrer');
     return;
   }
-  openModal(`${modalHeading('取件入口')}<div class="entry-provider">${mark(provider)}<div><strong>${esc(provider.name)}</strong><p>身份码及小程序自动跳转尚未接通</p></div></div><ol class="entry-steps"><li>打开微信，搜索「${esc(provider.miniProgramName)}」。</li><li>核对运营主体后，进入官方服务并登录。</li><li>查看其提供的取件码、身份码或开柜入口。</li></ol><p class="entry-warning">这里保存的是微信搜索词，尚未核验具体小程序标识及身份码页面。官网只作备用信息入口，不保证支持网页取件。</p><div class="entry-actions"><button class="button primary" id="copy-provider">${icon('copy')}复制微信搜索词</button>${provider.website ? `<a href="${esc(provider.website)}" target="_blank" rel="noopener noreferrer">查看平台官网 ↗</a>` : ''}</div>`);
-  $('#copy-provider').addEventListener('click', () => copy(provider.miniProgramName));
+  const fc = id === 'fcbox';
+  open(`${heading(fc ? '丰巢取件' : `${provider.name}身份码`)}${mark(id)}<ol class="entry-steps"><li>打开微信，搜索「${esc(provider.miniProgramName)}」</li><li>核对官方服务并登录</li><li>${fc ? '使用通知中的取件码，或在官方 App 一键开柜' : '进入身份码或取件入口'}</li></ol><p class="form-note">${id==='jd'?'现场京东小程序码可能带站点信息，请优先用微信扫一扫进入。':'不同平台凭证不能通用。'}当前尚未核实此身份码的稳定直达链接。</p><div class="entry-actions"><button class="button primary" id="copy-provider">复制小程序名称</button>${provider.website ? `<a href="${esc(provider.website)}" target="_blank" rel="noopener noreferrer">查看官方网站 ↗</a>`:''}</div>`);
+  $('#copy-provider').onclick = () => copy(provider.miniProgramName);
 }
-
-function parcelForm() {
-  openModal(`${modalHeading('添加包裹')}<p class="modal-subtitle">先手动记下来，取件时少翻几个页面。</p><form id="parcel-form" class="modal-form"><label class="field">包裹名称<input name="title" placeholder="例如：新买的书" maxlength="60" required></label><label class="field">取件平台<select name="providerID">${providers().map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><label class="field">取件地点<input name="station" placeholder="例如：小区东门丰巢柜" maxlength="100" required></label><label class="field">取件码<input name="pickupCode" placeholder="保留字母、分隔符与前导零" maxlength="40" required autocapitalize="off"></label><div class="form-row"><label class="field">快递公司（选填）<input name="carrier" maxlength="30" placeholder="例如：顺丰"></label><label class="field">运单号（选填）<input name="trackingNumber" maxlength="80" placeholder="输入完整运单号" autocapitalize="off"></label></div><p class="form-note">仅保存到本机，不会连接平台或自动更新取件状态。</p><p id="form-error" class="form-error" role="alert" hidden></p><button class="button primary" type="submit">保存包裹</button></form>`);
-  $('#parcel-form').addEventListener('submit', event => {
+function stationEntry(station) {
+  const bound = boundStationProvider(state, station, providers());
+  if (bound) { entry(bound.id); return; }
+  open(`${heading('选择地点身份码')}<p class="hint">为「${esc(station)}」选择一次，之后直接打开。更换请到“我的 → 设置 → 地点身份码绑定”。</p><div class="binding-choices">${ordered().map(p=>`<button class="provider-tile" data-bind-provider="${esc(p.id)}" data-bind-station="${esc(station)}">${mark(p.id)}<span class="detail"><strong>${esc(p.name)}</strong><small>${p.identityURL ? '直接打开官方身份码' : '官方入口指引，尚未直达动态码'}</small></span><span>›</span></button>`).join('')}</div>`);
+}
+function stationSettings() {
+  const stations=[...new Set([...state.parcels.filter(p=>!p.isDemo).map(p=>p.station),...Object.keys(state.stationCredentials||{})])].sort();
+  open(`${heading('地点身份码绑定')}<p class="hint">修改或取消各个地点的身份码绑定，设置立即保存。</p><div class="modal-form">${stations.length ? stations.map(station=>`<label class="field binding-field">${esc(station)}<select data-bind-station="${esc(station)}"><option value="">未绑定</option>${ordered().map(p=>`<option value="${esc(p.id)}" ${boundStationProvider(state,station,providers())?.id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`).join(''):'<p class="hint">添加包裹后，可在这里绑定取件地点。</p>'}</div><button class="text-button" id="back-settings">返回设置</button>`);
+  document.querySelectorAll('select[data-bind-station]').forEach(select=>select.onchange=()=>{
+    save(bindStationCredential(state,select.dataset.bindStation,select.value,providers()));notify('地点绑定已保存');
+  });
+  $('#back-settings').onclick=settings;
+}
+function parcelForm(mode='sms') {
+  open(`${heading(mode==='sms'?'短信智能导入':'添加包裹')}<form id="parcel-form" class="modal-form"><label class="field">粘贴完整取件短信（可选）<textarea id="sms" placeholder="例如：【韵达快递】您的快件已入库，取件码01-02-0003，请及时领取。"></textarea></label><p class="form-note" id="recognition-note">自动识别物流与取件码；地点优先取短信内容，否则沿用同一物流公司的最近记录。短信原文不会保存。</p><label class="field" id="candidate-field" hidden>选择本次要添加的取件码<select id="candidate-code"></select></label><label class="field">包裹名称<input name="title" maxlength="60" required></label><label class="field">取件平台<select name="providerID">${providers().map(p=>`<option value="${esc(p.id)}" ${p.id==='manual'?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label class="field">取件地点<input name="station" maxlength="100" required></label><label class="field">取件码<input name="pickupCode" maxlength="40" required autocapitalize="off"></label><div class="form-row"><label class="field">物流公司<input name="carrier" maxlength="30"></label><label class="field">运单号（选填）<input name="trackingNumber" maxlength="80"></label></div><p class="form-note">核对后保存。历史地点可能变更，可直接修改。</p><p id="form-error" class="error" hidden></p><button class="button primary" type="submit">确认添加</button></form>`);
+  const form=$('#parcel-form');
+  $('#sms').addEventListener('input',()=>{
+    if (!$('#sms').value.trim()) return;
+    const parsed=readSMS($('#sms').value,state.parcels);
+    for (const field of ['title','station','pickupCode','carrier','trackingNumber','providerID']) form.elements[field].value=parsed[field];
+    $('#recognition-note').textContent=parsed.message;
+    $('#candidate-field').hidden=parsed.codeCandidates.length<2;
+    $('#candidate-code').innerHTML='<option value="">请选择</option>'+parsed.codeCandidates.map(code=>`<option>${esc(code)}</option>`).join('');
+  });
+  $('#candidate-code').onchange=event=>form.elements.pickupCode.value=event.target.value;
+  form.addEventListener('submit',event=>{
     event.preventDefault();
     try {
-      const input = Object.fromEntries(new FormData(event.currentTarget));
-      save(addParcel(state, input, providers()));
-      filters = { collected: false, providerID: 'all', search: '' };
-      $('#search').value = '';
-      render();
-      modal.close();
-      switchPage('packages');
-      notify('包裹已保存到本机');
-    } catch (error) { $('#form-error').textContent = error.message; $('#form-error').hidden = false; }
+      const input=Object.fromEntries(new FormData(form)); input.source=$('#sms').value.trim()?'sms':'manual';
+      save(addParcel(state,input,providers())); modal.close(); page('packages'); notify('包裹已加入待取清单');
+    } catch(error) { $('#form-error').hidden=false; $('#form-error').textContent=error.message; }
   });
 }
-
 function providerForm() {
-  openModal(`${modalHeading('添加取件平台')}<p class="modal-subtitle">先留一个入口，之后再接入更多能力。</p><form id="provider-form" class="modal-form"><label class="field">平台名称<input name="name" placeholder="例如：附近的快递驿站" maxlength="20" required></label><label class="field">微信搜索词<input name="miniProgramName" placeholder="填写对应的服务名称" maxlength="40" required></label><p class="form-note">添加后可保存手动取件记录、查看打开指引。不会自动获取包裹或生成身份码。</p><p id="form-error" class="form-error" role="alert" hidden></p><button class="button primary" type="submit">保存平台</button></form>`);
-  $('#provider-form').addEventListener('submit', event => {
-    event.preventDefault();
-    try { save(addProvider(state, Object.fromEntries(new FormData(event.currentTarget)), providers())); modal.close(); notify('取件平台已添加'); }
-    catch (error) { $('#form-error').textContent = error.message; $('#form-error').hidden = false; }
-  });
+  open(`${heading('添加其他平台')}<form id="provider-form" class="modal-form"><label class="field">平台名称<input name="name" maxlength="20" required></label><label class="field">微信搜索词<input name="miniProgramName" maxlength="40" required></label><p class="form-note">保存官方入口名称，暂不会自动取得该平台的动态身份码。</p><p id="form-error" class="error" hidden></p><button class="button primary">保存平台</button></form>`);
+  $('#provider-form').onsubmit=event=>{event.preventDefault();try{save(addProvider(state,Object.fromEntries(new FormData(event.currentTarget)),providers()));modal.close();}catch(error){$('#form-error').hidden=false;$('#form-error').textContent=error.message;}};
 }
-
-document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
-document.addEventListener('click', event => {
-  const button = event.target.closest('button');
-  if (!button) return;
-  if (button.dataset.page) switchPage(button.dataset.page);
-  if (button.dataset.entry) entry(button.dataset.entry);
-  if (button.dataset.filter) { filters.providerID = button.dataset.filter; render(); }
-  if (button.dataset.copy) { const p = state.parcels.find(p => p.id === button.dataset.copy); if (p) copy(p.pickupCode); }
-  if (button.dataset.collect) {
-    try { const p = state.parcels.find(p => p.id === button.dataset.collect); save(toggleCollected(state, p.id)); notify(p.collectedAt ? '已恢复为待取' : '已标记为已取，可在已取记录中恢复'); }
-    catch (error) { notify(error.message); }
-  }
-  if (button.classList.contains('close-modal')) modal.close();
-});
-$('#add-parcel').addEventListener('click', parcelForm);
-$('#add-provider').addEventListener('click', providerForm);
-$('#all-providers').addEventListener('click', () => switchPage('providers'));
-$('.brand').addEventListener('click', event => { event.preventDefault(); switchPage('packages'); });
-$('#pending-tab').addEventListener('click', () => { filters.collected = false; render(); });
-$('#collected-tab').addEventListener('click', () => { filters.collected = true; render(); });
-$('#search').addEventListener('input', event => { filters.search = event.target.value; render(); });
-modal.addEventListener('click', event => {
-  const bounds = modal.getBoundingClientRect();
-  if (event.target === modal && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) modal.close();
-});
-
-try {
-  const response = await fetch('/shared/catalog.json');
-  if (!response.ok) throw new Error('平台配置加载失败');
-  catalog = await response.json();
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === null) {
-    state = { version: 1, customProviders: [], parcels: [] };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } else {
-    try { state = validateSavedState(JSON.parse(raw), catalog); }
-    catch {
-      readonly = true;
-      state = { version: 1, customProviders: [], parcels: [] };
-      $('#warning').textContent = '原有本地数据读取失败。当前为只读状态，未覆盖原记录；请保留数据并反馈问题。';
-      $('#warning').hidden = false;
-    }
-  }
-  render();
+function settings() {
+  open(`${heading('设置')}<label class="switch-row"><input type="checkbox" id="auto-sync" ${state.autoSyncEnabled===false?'':'checked'}>前台自动刷新待取清单</label><p class="hint">iPhone 版在打开或返回前台时检查，并在前台每两分钟检查一次。当前仅淘宝支持自动同步；锁屏后不承诺持续更新。</p><div class="entry-actions"><a class="button secondary" href="${esc(catalog.find(p=>p.id==='taobao').parcelsURL)}" target="_blank" rel="noopener noreferrer">淘宝登录与官方清单 ↗</a></div><div class="entry-actions"><button class="button secondary" id="manage-station-bindings">地点身份码绑定 ›</button></div><h3>短信导入</h3><p class="hint">复制完整短信，自动识别取件码；沿用同一物流公司最近一次地点，名称按日期依次编号。保存前核对，不读取短信收件箱。</p><p class="hint">涂涂取件 0.4.0 · 本地开发预览</p>`);
+  $('#auto-sync').onchange=event=>save({...state,autoSyncEnabled:event.target.checked});
+  $('#manage-station-bindings').onclick=stationSettings;
+}
+async function refresh() {
+  if (testing) { $('#sync-status').textContent='测试模式 · 不访问真实包裹快照'; return; }
   try {
-    const snapshotResponse = await fetch('/api/official-snapshot', { cache: 'no-store' });
-    if (snapshotResponse.ok) {
-      const snapshot = await snapshotResponse.json();
-      if (snapshot.readAt !== state.lastOfficialReadAt) save(mergeOfficialSnapshot(state, snapshot));
-      $('#official-read-status').textContent = `已从官方页面读取 ${snapshot.parcels.length} 件 · ${new Date(snapshot.readAt).toLocaleString('zh-CN')}。本次验证快照，非持续后台同步。`;
-    }
-  } catch {
-    $('#official-read-status').textContent = '本次验证快照未加载，保留原记录；请通过官方页面核对最新状态。';
-  }
-  const page = location.hash.slice(1);
-  switchPage(['packages', 'providers', 'settings'].includes(page) ? page : 'packages');
-} catch (error) {
-  readonly = true;
-  $('#warning').textContent = `无法启动预览：${error.message}。请使用项目的「打开预览.cmd」，并允许本地存储。`;
-  $('#warning').hidden = false;
-  document.querySelectorAll('button').forEach(button => { button.disabled = true; });
+    const response=await fetch('/api/official-snapshot',{cache:'no-store'});
+    if (!response.ok) throw new Error('没有新的快照');
+    const snapshot=await response.json();
+    if (snapshot.readAt!==state.lastOfficialReadAt) save(mergeOfficialSnapshot(state,snapshot));
+    $('#sync-status').textContent=`本机快照 ${new Date(snapshot.readAt).toLocaleString('zh-CN')} · 非网页实时同步`;
+  }catch{ $('#sync-status').textContent='未读取新快照，保留当前记录；iPhone 登录后可前台同步'; }
 }
+document.addEventListener('click',event=>{
+  const control=event.target.closest('button,[data-entry]');if(!control)return;
+  if(control.dataset.page)page(control.dataset.page);
+  if(control.dataset.entry)entry(control.dataset.entry);
+  if(control.dataset.station)stationEntry(control.dataset.station);
+  if(control.dataset.bindProvider){save(bindStationCredential(state,control.dataset.bindStation,control.dataset.bindProvider,providers()));entry(control.dataset.bindProvider);}
+  if(control.dataset.collect){save(toggleCollected(state,control.dataset.collect));notify('记录已更新');}
+  if(control.dataset.copy){const p=state.parcels.find(p=>p.id===control.dataset.copy);if(p)copy(p.pickupCode);}
+  if(control.classList.contains('close-modal'))modal.close();
+});
+document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.dataset.entry)entry(event.target.dataset.entry);});
+const providerGrid=$('#provider-grid');
+function finishDrag(commit=false){
+  if(!dragState)return;
+  const {id,targetID,frame}=dragState;cancelAnimationFrame(frame);
+  document.querySelectorAll('.dragging,.drop-target').forEach(row=>{row.classList.remove('dragging','drop-target');row.style.transform='';});
+  dragState=null;
+  if(commit){const destination=ordered().findIndex(p=>p.id===targetID);if(destination>=0)save(reorderProvider(state,ordered(),id,destination));}
+}
+providerGrid.addEventListener('pointerdown',event=>{
+  const handle=event.target.closest('[data-drag-handle]');if(!handle||!sorting)return;
+  event.preventDefault();handle.setPointerCapture(event.pointerId);
+  const row=handle.closest('[data-drag]');
+  dragState={id:handle.dataset.dragHandle,targetID:handle.dataset.dragHandle,startY:event.clientY,startScroll:window.scrollY,x:event.clientX,y:event.clientY,row,frame:0};
+  row.classList.add('dragging');
+  const tick=()=>{
+    if(!dragState)return;const d=dragState;
+    if(d.y<85)window.scrollBy(0,-12);else if(d.y>innerHeight-100)window.scrollBy(0,12);
+    d.row.style.transform=`translateY(${d.y-d.startY+window.scrollY-d.startScroll}px)`;
+    const target=document.elementFromPoint(d.x,d.y)?.closest('[data-drag]');
+    if(target&&target.dataset.drag!==d.id){
+      d.targetID=target.dataset.drag;
+      document.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));target.classList.add('drop-target');
+    }
+    d.frame=requestAnimationFrame(tick);
+  };dragState.frame=requestAnimationFrame(tick);
+});
+providerGrid.addEventListener('pointermove',event=>{if(dragState){dragState.x=event.clientX;dragState.y=event.clientY;}});
+providerGrid.addEventListener('pointerup',()=>finishDrag(true));
+providerGrid.addEventListener('pointercancel',()=>finishDrag(false));
+providerGrid.addEventListener('lostpointercapture',()=>finishDrag(false));
+providerGrid.addEventListener('keydown',event=>{
+  const handle=event.target.closest('[data-drag-handle]');
+  if(!handle||!['ArrowUp','ArrowDown'].includes(event.key))return;
+  event.preventDefault();const id=handle.dataset.dragHandle;const index=ordered().findIndex(p=>p.id===id);
+  save(reorderProvider(state,ordered(),id,index+(event.key==='ArrowUp'?-1:1)));
+  document.querySelector(`[data-drag-handle="${CSS.escape(id)}"]`)?.focus();
+});
+$('#add-parcel').onclick=()=>parcelForm('sms');$('#home-identity').onclick=()=>{const preferred=preferredCredentialProvider(state,providers());if(preferred)entry(preferred.id);else page('providers');};$('#add-provider').onclick=providerForm;
+$('#sort-providers').onclick=()=>{finishDrag(false);sorting=!sorting;render();};$('#search').oninput=render;
+$('#show-collected').onclick=()=>{$('#history-panel').hidden=!$('#history-panel').hidden;};$('#show-settings').onclick=settings;
+$('#refresh-snapshot').onclick=refresh;
+$('.brand').onclick=event=>{event.preventDefault();page('packages');};
+try {
+  const [catalogResponse,assetResponse,readerResponse]=await Promise.all(['/shared/catalog.json','/shared/brand-assets.json','/shared/sms-reader.js'].map(url=>fetch(url)));
+  if (![catalogResponse,assetResponse,readerResponse].every(r=>r.ok))throw new Error('本地资源加载失败，请重启预览服务');
+  catalog=await catalogResponse.json();assets=(await assetResponse.json()).brands;
+  readSMS=Function('return '+await readerResponse.text())();
+  const stored=localStorage.getItem(key);
+  state=stored?validateSavedState(JSON.parse(stored),catalog):{version:1,customProviders:[],parcels:[]};
+  if(testing){
+    $('#preview-notice').innerHTML='<span>本地测试模式 · 独立虚构记录</span> <button class="text-button" id="test-theme">切换外观</button>';
+    const button=$('#test-theme');
+    button.textContent=matchMedia('(prefers-color-scheme: dark)').matches?'浅色预览':'深色预览';
+    button.onclick=()=>{
+      const html=document.documentElement;
+      const dark=html.classList.contains('theme-dark')||(!html.classList.contains('theme-light')&&matchMedia('(prefers-color-scheme: dark)').matches);
+      html.classList.toggle('theme-dark',!dark);html.classList.toggle('theme-light',dark);
+      button.textContent=dark?'深色预览':'浅色预览';
+    };
+  }
+  page(location.hash.slice(1));render();await refresh();
+  setInterval(()=>{if(!document.hidden&&state.autoSyncEnabled!==false)refresh();},120000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.autoSyncEnabled!==false)refresh();});
+}catch(error){readonly=true;$('#warning').hidden=false;$('#warning').textContent=error.message+'。原有记录未覆盖。';}

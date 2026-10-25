@@ -9,7 +9,7 @@ struct ContentView: View {
         TabView {
             PackagesView().tabItem { Label("待取件", systemImage: "shippingbox") }
             ProvidersView().tabItem { Label("身份码", systemImage: "barcode.viewfinder") }
-            AboutView().tabItem { Label("设置", systemImage: "slider.horizontal.3") }
+            MyView().tabItem { Label("我的", systemImage: "person.crop.circle") }
         }
         .alert("本地数据提示", isPresented: Binding(get: { store.storageWarning != nil }, set: { _ in })) {
             Button("知道了", role: .cancel) { }
@@ -20,10 +20,21 @@ struct ContentView: View {
 struct ProviderMark: View {
     let provider: PickupProvider
     var body: some View {
-        Image(systemName: provider.symbol).font(.title3).foregroundStyle(Palette.blue)
-            .frame(width: 44, height: 44)
-            .background(Palette.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
-            .accessibilityLabel(provider.name)
+        BrandMark(asset: "Brand-" + provider.id, fallback: provider.symbol, label: provider.name)
+    }
+}
+
+struct BrandMark: View {
+    let asset: String
+    let fallback: String
+    let label: String
+    var body: some View {
+        Group {
+            if UIImage(named: asset) != nil { Image(asset).resizable().scaledToFill() }
+            else { Image(systemName: fallback).font(.title3).foregroundStyle(Palette.blue) }
+        }.frame(width: 44, height: 44)
+            .background(Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 13)).accessibilityLabel(label)
     }
 }
 
@@ -35,14 +46,15 @@ private struct CredentialRequest: Identifiable {
 struct PackagesView: View {
     @EnvironmentObject private var store: ParcelStore
     @State private var search = ""
-    @State private var showCollected = false
     @State private var adding = false
-    @State private var officialRecords = false
+    @State private var smsAdding = false
+    @EnvironmentObject private var sync: OfficialSyncController
     @State private var credentialRequest: CredentialRequest?
     @State private var selectedProvider: PickupProvider?
+    @State private var providerAfterBinding: PickupProvider?
 
     private var displayed: [Parcel] {
-        let source = showCollected ? store.collected : store.pending
+        let source = store.pending
         return source.filter { search.isEmpty || [$0.title, $0.station, $0.pickupCode, $0.trackingNumber, $0.carrier, store.provider($0.providerID)?.name ?? ""].joined(separator: " ").localizedCaseInsensitiveContains(search) }
     }
 
@@ -73,42 +85,40 @@ struct PackagesView: View {
                     .foregroundStyle(.white).padding(24).frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(red: 0.10, green: 0.35, blue: 0.82).gradient, in: RoundedRectangle(cornerRadius: 26))
 
-                    HStack(spacing: 12) {
-                        Button { officialRecords = true } label: {
-                            Label("待取记录", systemImage: "list.bullet.rectangle")
-                                .frame(maxWidth: .infinity).padding(.vertical, 17)
-                        }.buttonStyle(.bordered).background(Palette.card, in: RoundedRectangle(cornerRadius: 14))
-                        Button { credentialRequest = CredentialRequest() } label: {
-                            Label("身份码", systemImage: "barcode.viewfinder")
-                                .frame(maxWidth: .infinity).padding(.vertical, 17)
-                        }.buttonStyle(.borderedProminent)
-                    }.font(.headline).buttonBorderShape(.roundedRectangle(radius: 14))
-
-                    Label("取件后请刷新官方待取记录，清单会同步移除已不在其中的包裹。", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Text(showCollected ? "已取记录" : "待取清单").font(.title3.bold())
-                        Spacer()
-                        Button(showCollected ? "查看待取" : "已取 \(store.collected.count)") { showCollected.toggle() }.font(.subheadline)
-                    }
+                    Button {
+                        if let provider = store.preferredCredential { selectedProvider = provider }
+                        else { credentialRequest = CredentialRequest() }
+                    } label: {
+                        Label("打开身份码", systemImage: "barcode.viewfinder")
+                            .frame(maxWidth: .infinity).padding(.vertical, 15)
+                    }.buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 14))
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            if sync.isRefreshing { ProgressView().controlSize(.small) }
+                            else { Image(systemName: sync.needsLogin ? "person.crop.circle.badge.exclamationmark" : "arrow.triangle.2.circlepath") }
+                            Text(sync.status)
+                        }
+                        if let updated = store.lastOfficialReadAt {
+                            Text("上次同步 \(updated.formatted(date: .abbreviated, time: .shortened)) · 可下拉刷新")
+                        }
+                    }.font(.caption).foregroundStyle(.secondary)
+                    Text("待取清单").font(.title2.bold())
                     if displayed.isEmpty {
-                        ContentUnavailableView(search.isEmpty ? (showCollected ? "暂无已取记录" : "暂无本地待取包裹") : "没有匹配的记录", systemImage: "shippingbox", description: Text(search.isEmpty ? "可打开待取记录，刷新并核对官方清单。" : "试试其他取件码、快递公司或地点。"))
+                        ContentUnavailableView(search.isEmpty ? "暂无本地待取包裹" : "没有匹配的记录", systemImage: "shippingbox", description: Text(search.isEmpty ? "登录淘宝后在前台自动检查；短信件可点右上角添加。" : "试试其他取件码、快递公司或地点。"))
                     }
                     ForEach(Array(Set(displayed.map(\.station))).sorted(), id: \.self) { station in
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(station).font(.subheadline.bold())
                             HStack {
-                                Image(systemName: "barcode.viewfinder")
+                                Text(station).font(.title3.bold()).foregroundStyle(.primary)
+                                Spacer(minLength: 12)
                                 Button {
                                     if let id = store.stationCredentials[station], let provider = store.provider(id) { selectedProvider = provider }
                                     else { credentialRequest = CredentialRequest(station: station) }
                                 } label: {
-                                    Text(store.stationCredentials[station].flatMap { store.provider($0)?.name }.map { "\($0)身份码" } ?? "选择本站身份码")
+                                    Text(store.stationCredentials[station].flatMap { store.provider($0)?.name }.map { "\($0)身份码" } ?? "选择身份码")
                                 }
-                                Spacer()
-                                Button("更换") { credentialRequest = CredentialRequest(station: station) }
-                                    .accessibilityLabel("更换\(station)身份码来源")
-                            }.font(.subheadline).foregroundStyle(Palette.blue)
+                                .font(.subheadline).fixedSize(horizontal: true, vertical: false)
+                            }.foregroundStyle(Palette.blue)
                             ForEach(displayed.filter { $0.station == station }) { parcel in
                                 ParcelCard(parcel: parcel)
                             }
@@ -116,36 +126,56 @@ struct PackagesView: View {
                     }
                 }.padding(20)
             }
+            .refreshable { await sync.refreshAndWait() }
             .scrollDismissesKeyboard(.interactively)
             .background(Palette.paper).foregroundStyle(Palette.ink)
-            .navigationTitle("拾件").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { adding = true } label: { Image(systemName: "plus") }.accessibilityLabel("添加包裹") } }
-            .sheet(isPresented: $adding) { AddParcelView() }
-            .sheet(item: $credentialRequest) { request in CredentialPickerView(station: request.station) }
+            .navigationTitle("涂涂取件").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("粘贴短信智能导入", systemImage: "text.bubble") { smsAdding = true; adding = true }
+                        Button("手动添加包裹", systemImage: "square.and.pencil") { smsAdding = false; adding = true }
+                    } label: { Image(systemName: "plus") }.accessibilityLabel("添加包裹")
+                }
+            }
+            .sheet(isPresented: $adding) { AddParcelView(fromSMS: smsAdding) }
+            .sheet(item: $credentialRequest, onDismiss: {
+                if let providerAfterBinding {
+                    selectedProvider = providerAfterBinding
+                    self.providerAfterBinding = nil
+                }
+            }) { request in
+                CredentialPickerView(station: request.station, onChoose: { provider in
+                    providerAfterBinding = provider
+                    credentialRequest = nil
+                })
+            }
             .fullScreenCover(item: $selectedProvider) { PickupEntryView(provider: $0) }
-            .fullScreenCover(isPresented: $officialRecords) { OfficialPickupView(initialPage: 0) }
         }
     }
 }
 
-private struct ParcelCard: View {
+struct ParcelCard: View {
     let parcel: Parcel
     @EnvironmentObject private var store: ParcelStore
     @State private var copied = false
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                if let provider = store.provider(parcel.providerID) { ProviderMark(provider: provider) }
+                if let asset = CarrierBrand.asset(for: parcel.carrier) {
+                    BrandMark(asset: asset, fallback: "shippingbox", label: parcel.carrier)
+                } else if let provider = store.provider(parcel.providerID) { ProviderMark(provider: provider) }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(parcel.title).font(.headline)
-                    Text("\(parcel.carrier.isEmpty ? "快递" : parcel.carrier) · \(store.provider(parcel.providerID)?.name ?? "本地")")
+                    Text("\(parcel.carrier.isEmpty ? "快递" : parcel.carrier) · \(parcel.source == "sms" ? "短信导入" : store.provider(parcel.providerID)?.name ?? "本地")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { store.toggleCollected(parcel) } label: {
-                    Image(systemName: parcel.isCollected ? "arrow.uturn.backward.circle" : "checkmark.circle")
-                        .font(.title2).frame(width: 44, height: 44)
-                }.accessibilityLabel(parcel.isCollected ? "恢复待取" : "标记已取")
+                    Text(parcel.isCollected ? "恢复待取" : "我已取件")
+                        .font(.caption.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 40)
+                        .background(Palette.blue.opacity(0.10), in: Capsule())
+                }.accessibilityLabel(parcel.isCollected ? "恢复待取" : "我已取件")
             }
             HStack {
                 Text(parcel.pickupCode).font(.system(size: 28, weight: .semibold, design: .monospaced)).textSelection(.enabled)
@@ -162,48 +192,60 @@ private struct ParcelCard: View {
 }
 
 struct ProvidersView: View {
-    @State private var adding = false
-    var body: some View {
-        CredentialPickerView(station: nil, showsDone: false)
-    }
+    var body: some View { CredentialPickerView(station: nil, showsDone: false) }
 }
 
 struct CredentialPickerView: View {
     var station: String?
     var showsDone = true
+    var onChoose: ((PickupProvider) -> Void)? = nil
     @EnvironmentObject private var store: ParcelStore
     @Environment(\.dismiss) private var dismiss
     @State private var selected: PickupProvider?
     @State private var adding = false
+    @State private var sorting = false
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(station.map { "为「\($0)」选择身份码，下次可直接打开。" } ?? "按驿站要求选择身份码来源。淘宝、菜鸟和京东的身份码分别保留。")
+            List {
+                Section {
+                    Text(station.map { "为「\($0)」选择身份码，下次可直接打开。" } ?? "按驿站要求选择平台。点击排序后，按住右侧把手上下拖动。")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    ForEach(store.providers) { provider in
+                }
+                Section {
+                    ForEach(store.credentialProviders) { provider in
                         Button {
+                            guard !sorting else { return }
                             if let station { store.rememberCredential(provider.id, for: station) }
-                            selected = provider
+                            store.preferCredential(provider.id)
+                            if let onChoose { onChoose(provider) }
+                            else { selected = provider }
                         } label: {
                             HStack(spacing: 14) {
                                 ProviderMark(provider: provider)
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text("\(provider.name)身份码").font(.headline)
-                                    Text(provider.identityURL == nil ? "前往官方小程序获取" : "App 内打开官方身份码")
+                                    Text(provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码").font(.headline).foregroundStyle(.primary)
+                                    Text(provider.identityURL == nil ? "打开官方服务获取凭证" : "App 内打开官方身份码")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if let station, store.stationCredentials[station] == provider.id { Image(systemName: "checkmark.circle.fill") }
-                                else { Image(systemName: "chevron.right").font(.caption) }
-                            }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
+                                else if !sorting { Image(systemName: "chevron.right").font(.caption) }
+                            }.padding(.vertical, 5)
                         }.buttonStyle(.plain)
-                    }
-                    Button { adding = true } label: { Label("添加其他平台", systemImage: "plus.circle").frame(maxWidth: .infinity).padding(16) }
-                }.padding(20)
-            }.background(Palette.paper)
+                    }.onMove { offsets, destination in store.moveProviders(from: offsets, to: destination) }
+                        .deleteDisabled(true)
+                        .moveDisabled(!sorting)
+                }
+                if !sorting { Section { Button { adding = true } label: { Label("添加其他平台", systemImage: "plus.circle") } } }
+            }.environment(\.editMode, .constant(sorting ? .active : .inactive))
                 .navigationTitle("身份码").navigationBarTitleDisplayMode(.inline)
-                .toolbar { if showsDone { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } } }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(sorting ? "完成" : "排序") { withAnimation { sorting.toggle() } }
+                            .font(.subheadline).foregroundStyle(.secondary).buttonStyle(.plain)
+                    }
+                    if showsDone { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+                }
                 .fullScreenCover(item: $selected) { PickupEntryView(provider: $0) }
                 .sheet(isPresented: $adding) { AddProviderView() }
         }
@@ -224,7 +266,7 @@ struct PickupEntryView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         ProviderMark(provider: provider)
-                        Text("\(provider.name)身份码").font(.largeTitle.bold())
+                        Text(provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码").font(.largeTitle.bold())
                         Text("请使用本站要求的平台身份码。能查到同一包裹，不代表身份码可以通用。")
                             .font(.subheadline).foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 18) {
@@ -237,12 +279,19 @@ struct PickupEntryView: View {
                             Text("若驿站要求扫描现场的京东快递小程序码，请先用微信扫一扫进入，再找到「身份码」。现场入口可能带站点信息，应优先使用现场指引。")
                                 .font(.subheadline)
                         }
+                        if provider.id == "fcbox" {
+                            Text("丰巢官方支持通知取件码及 App 一键开柜，目前未确认可供本 App 使用的统一身份码接口。")
+                                .font(.subheadline)
+                        }
                         Button(copied ? "已复制名称，再打开微信" : "复制名称并打开微信") {
                             UIPasteboard.general.string = provider.miniProgramName
                             copied = true
                             if let url = URL(string: "weixin://") { openURL(url) { accepted in openFailed = !accepted } }
                         }.buttonStyle(.borderedProminent).controlSize(.large)
                         if openFailed { Text("无法打开微信，请从手机桌面打开并搜索。已复制小程序名称。") .font(.caption).foregroundStyle(.orange) }
+                        if let link = provider.appStoreURL, let url = URL(string: link) {
+                            Link("官方 App（App Store）", destination: url).font(.subheadline)
+                        }
                         Text("当前可打开微信，尚不能直达这个小程序的身份码页面；不会用淘宝码替代。")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(24)
@@ -254,26 +303,94 @@ struct PickupEntryView: View {
     }
 }
 
-struct AboutView: View {
+struct MyView: View {
+    @EnvironmentObject private var store: ParcelStore
     var body: some View {
         NavigationStack {
             List {
-                Section("拾件") {
-                    Label("本地保存，无需注册", systemImage: "iphone")
-                    Label("登录在官方页面完成", systemImage: "lock.shield")
-                    Label("不读取短信", systemImage: "message")
+                Section {
+                    HStack(spacing: 16) {
+                        Image("TutuLogo").resizable().scaledToFit().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 16))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("涂涂取件").font(.title2.bold())
+                            Text("把每一次取件整理好").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.padding(.vertical, 12)
                 }
-                Section("同步与身份码") {
-                    Text("淘宝待取件页加载后尝试读取，也可手动刷新同步。确认官方空清单后移除该来源旧待取记录；网络异常、登录失效或未加载完整时保留原记录。")
-                    Text("取件后不会在后台实时更新，请打开待取记录刷新。移出清单不等于确认已取件；已取记录仅记录你手动标记的包裹。")
-                    Text("淘宝、菜鸟、京东等身份码分别选择，可按取件地点记住常用入口。除淘宝官方网页外，其余平台目前提供微信打开指引。")
+                Section {
+                    NavigationLink { CollectedParcelsView() } label: {
+                        HStack { Label("已取记录", systemImage: "checkmark.circle"); Spacer(); Text("\(store.collected.count)").foregroundStyle(.secondary) }
+                    }
+                    NavigationLink { SettingsView() } label: { Label("设置", systemImage: "gearshape") }
                 }
-                Section("外观与版本") {
-                    Label("蓝白配色，跟随系统深色模式", systemImage: "circle.lefthalf.filled")
-                    Text("版本 0.3.0")
-                }
-            }.navigationTitle("设置")
+                Section { Text("更多个人功能会逐步加入。").font(.caption).foregroundStyle(.secondary) }
+            }.navigationTitle("我的")
         }
+    }
+}
+
+struct CollectedParcelsView: View {
+    @EnvironmentObject private var store: ParcelStore
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                if store.collected.isEmpty { ContentUnavailableView("暂无已取记录", systemImage: "checkmark.circle", description: Text("待取清单中标记已取的包裹会保存在这里。")) }
+                ForEach(store.collected.sorted { ($0.collectedAt ?? .distantPast) > ($1.collectedAt ?? .distantPast) }) { parcel in
+                    VStack(alignment: .leading, spacing: 8) { Text(parcel.station).font(.caption).foregroundStyle(.secondary); ParcelCard(parcel: parcel) }
+                }
+            }.padding(20)
+        }.background(Palette.paper).navigationTitle("已取记录").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct SettingsView: View {
+    @EnvironmentObject private var store: ParcelStore
+    @State private var officialLogin = false
+    var body: some View {
+        List {
+            Section("同步与账号") {
+                Toggle("前台自动刷新待取清单", isOn: $store.autoSyncEnabled)
+                Button("淘宝登录与官方清单") { officialLogin = true }
+                Text("打开或返回 App 时自动检查，前台每两分钟检查一次；登录失效或读取异常时保留原记录。下拉待取清单可手动重试。") .font(.caption).foregroundStyle(.secondary)
+                Text("当前仅淘宝清单支持同步。iOS 后台运行由系统调度，本版不承诺锁屏后持续更新。") .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("短信与本地记录") {
+                Text("朋友寄件也可添加：在短信中复制完整通知，到右上角 + 选择短信智能导入。自动识别取件码，沿用该物流公司最近一次地点，按日期编号。确认后只保存包裹字段。")
+                Text("不会自动读取短信收件箱，也不保存短信原文。短信件和未接通平台的包裹，取完后需手动标记。")
+            }
+            Section("身份码") {
+                NavigationLink("地点身份码绑定") { StationCredentialSettingsView() }
+                Text("淘宝、菜鸟、京东等来源分别保留；身份码页可手动排序，地点可记住常用入口。除淘宝官方网页外，其余动态码仍在逐项验证。")
+            }
+            Section("关于涂涂取件") {
+                Label("蓝白配色，跟随系统深色模式", systemImage: "circle.lefthalf.filled")
+                Text("版本 0.4.0 · 本地开发版")
+            }
+        }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
+            .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
+    }
+}
+
+struct StationCredentialSettingsView: View {
+    @EnvironmentObject private var store: ParcelStore
+    private var stations: [String] {
+        Array(Set(store.parcels.filter { !$0.isDemo }.map(\.station)).union(store.stationCredentials.keys)).sorted()
+    }
+    var body: some View {
+        List {
+            if stations.isEmpty { Text("有包裹地点后，可在这里设置身份码来源。").foregroundStyle(.secondary) }
+            ForEach(stations, id: \.self) { station in
+                Section(station) {
+                    Picker("身份码来源", selection: Binding(get: { store.stationCredentials[station] ?? "" }, set: { id in
+                        if id.isEmpty { store.forgetCredential(for: station) }
+                        else { store.rememberCredential(id, for: station) }
+                    })) {
+                        Text("未绑定").tag("")
+                        ForEach(store.credentialProviders) { Text($0.name).tag($0.id) }
+                    }
+                }
+            }
+        }.navigationTitle("地点身份码绑定").navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -312,6 +429,13 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         webView.backgroundColor = .white
         webView.scrollView.backgroundColor = .white
         webView.overrideUserInterfaceStyle = .light
+    }
+
+    func stop() {
+        generation += 1
+        webView.stopLoading()
+        readResult = nil
+        isLoading = false
     }
 
     func load(_ url: URL) {
@@ -377,9 +501,9 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
                 }
                 return
             }
-            self.readResult = result
-            self.hasError = result.state != "ready"
             self.status = result.state == "ready" ? "正在同步清单…" : result.message
+            self.hasError = result.state != "ready"
+            self.readResult = result
         }
     }
 
@@ -387,8 +511,8 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         guard (error as NSError).code != NSURLErrorCancelled else { return }
         generation += 1
         isLoading = false
-        hasError = true
         status = "官方页面加载失败，原有包裹保持不变，请重试"
+        hasError = true
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -443,7 +567,7 @@ struct OfficialPickupView: View {
                 VStack(spacing: 10) {
                     if page == 0 {
                         Button { session.load(OfficialPickupSession.parcels) } label: {
-                            Label("读取当前待取件到拾件", systemImage: "arrow.triangle.2.circlepath")
+                            Label("读取当前待取件到涂涂取件", systemImage: "arrow.triangle.2.circlepath")
                                 .frame(maxWidth: .infinity).padding(.vertical, 6)
                         }.buttonStyle(.borderedProminent).disabled(session.isLoading)
                     }
@@ -466,6 +590,10 @@ struct OfficialPickupView: View {
                 }
             }
             .onAppear { session.load(pageURL) }
+            .onDisappear {
+                session.stop()
+                NotificationCenter.default.post(name: Notification.Name("ParcelHub.official-session-changed"), object: nil)
+            }
             .onChange(of: page) { _, _ in session.load(pageURL) }
             .onChange(of: session.readResult) { _, result in
                 guard let result, result.state == "ready" else { return }

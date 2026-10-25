@@ -1,5 +1,42 @@
 export const STORAGE_KEY = 'parcelhub.preview.v1';
 
+export function orderedProviders(catalog, custom = [], order = []) {
+  const all = [...catalog, ...custom].filter(p => p.id !== 'manual');
+  const ids = [...new Set(order)].filter(id => all.some(p => p.id === id));
+  return [...ids.map(id => all.find(p => p.id === id)), ...all.filter(p => !ids.includes(p.id))];
+}
+
+export function reorderProvider(state, providers, id, destination) {
+  const ids = providers.map(p => p.id);
+  const from = ids.indexOf(id);
+  if (from < 0 || !Number.isInteger(destination) || destination < 0 || destination >= ids.length) return state;
+  ids.splice(from, 1);
+  ids.splice(destination, 0, id);
+  return { ...state, providerOrderIDs: ids };
+}
+
+export function bindStationCredential(state, station, providerID, providers) {
+  if (!station.trim()) throw new Error('缺少取件地点');
+  if (providerID && (providerID === 'manual' || !providers.some(p => p.id === providerID))) throw new Error('请选择有效身份码来源');
+  const bindings = { ...(state.stationCredentials || {}) };
+  if (providerID) bindings[station] = providerID;
+  else delete bindings[station];
+  return { ...state, stationCredentials: bindings };
+}
+
+export function boundStationProvider(state, station, providers) {
+  const id = state.stationCredentials?.[station];
+  return providers.find(p => p.id === id && p.id !== 'manual');
+}
+
+export function preferredCredentialProvider(state, providers) {
+  const choices = providers.filter(p => p.id !== 'manual');
+  const preferred = choices.find(p => p.id === state.preferredCredentialID);
+  if (preferred) return preferred;
+  const bound = [...new Set(Object.values(state.stationCredentials || {}))].map(id => choices.find(p => p.id === id)).filter(Boolean);
+  return bound.length === 1 ? bound[0] : undefined;
+}
+
 export function demoState() {
   const make = (id, title, providerID, station, pickupCode, carrier, trackingNumber) => ({
     id, title, providerID, station, pickupCode, carrier, trackingNumber,
@@ -34,7 +71,8 @@ export function addParcel(state, input, providers) {
   const parcel = {
     id: crypto.randomUUID(), title: clean(input.title), station: clean(input.station),
     pickupCode: clean(input.pickupCode), providerID: input.providerID, carrier: clean(input.carrier),
-    trackingNumber: clean(input.trackingNumber), addedAt: new Date().toISOString(), collectedAt: null, isDemo: false
+    trackingNumber: clean(input.trackingNumber), addedAt: new Date().toISOString(), collectedAt: null, isDemo: false,
+    source: input.source === 'sms' ? 'sms' : 'manual'
   };
   return { ...state, parcels: [parcel, ...state.parcels] };
 }
@@ -96,7 +134,7 @@ export function mergeOfficialSnapshot(state, snapshot) {
     const index = parcels.findIndex(p => !p.isDemo && ['taobao', 'cainiao'].includes(p.providerID) && same(p.carrier, row.carrier) && same(p.trackingNumber, row.trackingNumber));
     const previous = index >= 0 ? parcels[index] : null;
     const incoming = { ...previous, ...row, id: previous?.id || crypto.randomUUID(),
-      addedAt: previous?.addedAt || snapshot.readAt, collectedAt: null, isDemo: false,
+      addedAt: previous?.addedAt || snapshot.readAt, collectedAt: previous?.collectedAt || null, isDemo: false,
       providerID: 'taobao', source: 'taobao-web', lastReadAt: snapshot.readAt, inLatestOfficialSnapshot: true };
     if (index >= 0) parcels[index] = incoming;
     else parcels.unshift(incoming);
