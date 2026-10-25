@@ -1,0 +1,8 @@
+[
+  {"id":"cainiao","name":"菜鸟","shortName":"菜","color":"#FFAB34","symbol":"shippingbox.fill","miniProgramName":"菜鸟","website":"https://www.cainiao.com/","kind":"驿站","featured":true,"identityURL":"https://pages-fast.m.taobao.com/wow/z/uniapp/1100410/last-mile-fe/m-end-identity-code/home?x-ssr=true&skeleton=true&forceThemis=true","parcelsURL":"https://pages-fast.m.taobao.com/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home"},
+  {"id":"yishoufa","name":"驿收发","shortName":"驿","color":"#479981","symbol":"building.2.fill","miniProgramName":"驿收发","website":"https://www.yshoufa.com/","kind":"驿站","featured":true},
+  {"id":"fcbox","name":"丰巢","shortName":"丰","color":"#E1BE48","symbol":"square.grid.3x3.fill","miniProgramName":"丰巢","website":"https://www.fcbox.com/","kind":"快递柜","featured":true},
+  {"id":"tuxi","name":"兔喜生活＋","shortName":"兔","color":"#5284D6","symbol":"shippingbox.fill","miniProgramName":"兔喜生活","website":"https://tuxi.zto.cn/","kind":"驿站 / 快递柜","featured":false},
+  {"id":"mamayz","name":"妈妈驿站","shortName":"妈","color":"#9B6DB6","symbol":"house.fill","miniProgramName":"妈妈驿站","website":"https://www.mamayz.com/","kind":"驿站","featured":false},
+  {"id":"panda","name":"熊猫快收","shortName":"熊","color":"#788783","symbol":"shippingbox.fill","miniProgramName":"熊猫快收","website":"https://www.84185858.com/","kind":"驿站","featured":false}
+]

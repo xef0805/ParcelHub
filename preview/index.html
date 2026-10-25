@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#244F40">
+  <title>拾件 · 把包裹顺路带回家</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23244F40'/%3E%3Cpath d='m15 23 17-9 17 9v20l-17 9-17-9zm0 0 17 10 17-10M32 33v19M23 19l18 10' fill='none' stroke='%23F4D591' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/preview/style.css">
+  <script type="module" src="/preview/app.mjs"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#packages" aria-label="拾件首页"><span class="brand-mark" data-icon="box"></span><span>拾件<small>PARCEL HUB</small></span></a>
+    <div class="nav-label">我的取件助手</div>
+    <nav aria-label="主导航">
+      <button class="nav-item active" data-page="packages"><span data-icon="box"></span>待取件<span class="nav-count" id="nav-count">4</span></button>
+      <button class="nav-item" data-page="providers"><span data-icon="scan"></span>取件凭证</button>
+      <button class="nav-item" data-page="settings"><span data-icon="settings"></span>设置</button>
+    </nav>
+    <div class="sidebar-note"><span class="tiny-dot"></span>本地保存，轻装取件<p>不读取短信<br>包裹记录不上传服务器</p></div>
+    <div class="version">拾件 0.1 <span>初版预览</span></div>
+  </aside>
+  <main>
+    <div class="topline"><span>让每一次取件，都从容一点。</span><span class="preview-label"><span class="tiny-dot"></span>本机预览</span></div>
+    <div id="warning" class="warning" hidden></div>
+    <section id="page-packages" class="page">
+      <header class="page-heading"><div><div class="eyebrow">A LITTLE LESS HASSLE</div><h1>待取件<span class="heading-dot">.</span></h1><p>不同平台的包裹，一眼就有数。</p></div><button class="button primary" id="add-parcel"><span data-icon="plus"></span>添加包裹</button></header>
+      <section class="official-access" aria-label="官方取件入口"><div><strong>菜鸟身份码，现在直接打开</strong><p>已验证：登录后显示官方身份码和真实待取件。驿站扫码出库仍需实测。</p></div><div class="official-links"><a class="button primary" href="https://pages-fast.m.taobao.com/wow/z/uniapp/1100410/last-mile-fe/m-end-identity-code/home?x-ssr=true&amp;skeleton=true&amp;forceThemis=true" target="_blank" rel="noopener noreferrer">打开官方身份码 ↗</a><a class="button secondary" href="https://pages-fast.m.taobao.com/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home" target="_blank" rel="noopener noreferrer">打开官方待取件 ↗</a></div><small id="official-read-status">正在检查本次官方网页读取结果；未加载不代表没有包裹。</small></section>
+      <section class="hero" aria-label="本地记录概览">
+        <div class="hero-content"><div class="hero-kicker"><span></span>已读取 / 已保存的包裹</div><div class="hero-number"><strong id="pending-count">0</strong><span>件待取记录</span></div><p>分布在 <b id="station-count">0</b> 个取件点，请留意读取时间。</p><span class="demo-label">官方网页读取与手动记录分别标注 · 无演示包裹</span></div>
+        <svg class="hero-art" viewBox="0 0 330 240" fill="none" aria-hidden="true"><ellipse cx="164" cy="206" rx="121" ry="13" fill="#163B30"/><path d="m91 87 96-42 95 44-96 48z" fill="#D8BA84"/><path d="m91 87 95 50v76l-95-50z" fill="#B7945F"/><path d="m186 137 96-48v76l-96 48z" fill="#DCC59E"/><path d="m127 71 96 48 25-13-96-47z" fill="#F2DFBC"/><path d="m223 119 25-13v33l-25 13z" fill="#F5E5C9"/><path d="m54 132 57-25 57 27-57 28z" fill="#F3E5C8"/><path d="m54 132 57 30v51l-57-30z" fill="#CDB48A"/><path d="m111 162 57-28v51l-57 28z" fill="#E9D9B8"/><path d="m76 122 57 29 15-7-57-29z" fill="#FFF2D7"/><path d="m133 151 15-7v20l-15 7z" fill="#F5E5C9"/><path d="m238 52 8-13m7 19 14-4M70 68l-5-8m-3 21-12-1" stroke="#E2C78B" stroke-width="2" stroke-linecap="round"/><rect x="204" y="156" width="40" height="22" rx="3" transform="rotate(-27 204 156)" fill="#F3E7CD"/><path d="m212 161 18-9m-15 15 14-7" stroke="#AD936A" stroke-width="2"/></svg>
+      </section>
+      <div class="workspace">
+        <section class="parcel-column">
+          <div class="list-toolbar"><div class="segmented" aria-label="包裹状态"><button class="selected" id="pending-tab">待取 <span id="pending-tab-count">4</span></button><button id="collected-tab">已取 <span id="collected-tab-count">0</span></button></div><label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="搜索包裹或取件码" aria-label="搜索包裹或取件码"></label></div>
+          <div id="provider-filters" class="filter-row" aria-label="按平台筛选"></div>
+          <div id="parcel-list"></div>
+          <div class="data-note"><span data-icon="info"></span>官方读取记录标注了来源。浏览器预览为本次验证快照，最新状态请在官方页面核对。</div>
+        </section>
+        <aside class="right-column"><div class="section-heading"><h2>常用取件入口</h2><button class="text-button" id="all-providers">查看全部 <span aria-hidden="true">↗</span></button></div><div id="quick-providers" class="quick-providers"></div><div class="quiet-card"><span class="quiet-icon" data-icon="leaf"></span><h3>少翻几个页面，<br>多一点从容。</h3><p>取件码与身份码各有用途。<br>身份凭证由对应平台提供。</p><span class="quiet-footer">ONE TRIP. ALL YOUR PARCELS.</span></div></aside>
+      </div>
+    </section>
+    <section id="page-providers" class="page" hidden>
+      <header class="page-heading"><div><div class="eyebrow">YOUR PICKUP SHORTCUTS</div><h1>取件凭证<span class="heading-dot">.</span></h1><p>常用入口放在一起，新平台慢慢加。</p></div><button class="button primary" id="add-provider"><span data-icon="plus"></span>添加平台</button></header>
+      <div class="explanation"><span data-icon="info"></span><p>菜鸟可打开已验证的官方身份码网页；其余平台暂为手动指引。包裹自动汇总尚未打通。</p></div>
+      <div id="provider-grid" class="provider-grid"></div>
+      <p class="section-footnote">添加平台只保存名称和微信搜索词，不会自动获得包裹数据或身份码。</p>
+    </section>
+    <section id="page-settings" class="page" hidden>
+      <header class="page-heading"><div><div class="eyebrow">SMALL APP, CLEAR BOUNDARIES</div><h1>简单一点<span class="heading-dot">.</span></h1><p>关于这个初版，以及它现在能做的事。</p></div></header>
+      <div class="settings-grid"><article class="setting-card"><span data-icon="shield"></span><h2>留在本机</h2><p>无需注册，不读取短信。此预览的包裹记录保存在当前浏览器，不上传服务器。</p></article><article class="setting-card"><span data-icon="check"></span><h2>已经可以用</h2><p>手动添加、复制取件码、标记已取、恢复待取、筛选搜索，以及添加自定义平台。</p></article><article class="setting-card"><span data-icon="scan"></span><h2>下一步接入</h2><p>核实平台授权与数据范围，再接入自动同步、微信小程序直达和身份码展示。</p></article><article class="setting-card"><span data-icon="info"></span><h2>预览与 iOS 工程</h2><p>这里是 Windows 交互预览。原生 SwiftUI 工程在项目的 ios 文件夹内，两者本地数据独立保存。</p></article></div>
+      <div class="about-footer"><span class="brand-mark small" data-icon="box"></span><div><strong>拾件 ParcelHub</strong><p>0.1 · 取件这件小事，做好就好。</p></div></div>
+    </section>
+    <footer class="main-footer"><span>拾件 · 让回家的路，顺手一点</span><span>LOCAL FIRST / V0.1</span></footer>
+  </main>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -1,0 +1,38 @@
+name: Build iPhone test package (unsigned)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build for iPhone without credentials
+        run: >-
+          xcodebuild -project ios/ParcelHub.xcodeproj
+          -scheme ParcelHub -configuration Release
+          -sdk iphoneos -destination 'generic/platform=iOS'
+          -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Prepare unsigned IPA for local signing
+        run: |
+          test -d build/Build/Products/Release-iphoneos/ParcelHub.app
+          mkdir -p dist/Payload
+          ditto build/Build/Products/Release-iphoneos/ParcelHub.app dist/Payload/ParcelHub.app
+          cd dist
+          zip -qry ParcelHub-unsigned.ipa Payload
+      - name: Store test package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ParcelHub-unsigned-iphone
+          path: dist/ParcelHub-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 3
