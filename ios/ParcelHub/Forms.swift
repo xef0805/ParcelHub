@@ -35,7 +35,11 @@ private enum SMSDraftReader {
 }
 
 struct AddParcelView: View {
+    var initialSMS = ""
+    var initialTrackingNumber = ""
+    var initialCarrier = ""
     @EnvironmentObject private var store: ParcelStore
+    @EnvironmentObject private var clipboard: ClipboardImportController
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var station = ""
@@ -48,6 +52,7 @@ struct AddParcelView: View {
     @State private var candidates: [String] = []
     @State private var recognitionNote: String?
     @State private var error: String?
+    @State private var showingDuplicateNotice = false
 
     var body: some View {
         NavigationStack {
@@ -65,7 +70,7 @@ struct AddParcelView: View {
                             TextEditor(text: $sms).frame(minHeight: 135).scrollContentBackground(.hidden).accessibilityLabel("完整取件短信")
                         }.padding(6).background(Palette.paper, in: RoundedRectangle(cornerRadius: 14))
                         HStack { PasteButton(payloadType: String.self) { texts in sms = texts.first ?? "" }; Spacer() }
-                        if let recognitionNote { Label(recognitionNote, systemImage: "sparkles").font(.caption).foregroundStyle(.secondary) }
+                        if let recognitionNote { Label { AppMessage(recognitionNote) } icon: { Image(systemName: "sparkles") }.font(.caption).foregroundStyle(.secondary) }
                     }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
                     VStack(alignment: .leading, spacing: 15) {
                         Label("核对取件信息", systemImage: "shippingbox").font(.headline)
@@ -96,17 +101,26 @@ struct AddParcelView: View {
                         .buttonStyle(.borderedProminent).padding(.horizontal, 20).padding(.vertical, 12).background(Palette.paper)
                 }
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if let error { Label(error, systemImage: "exclamationmark.circle.fill").font(.caption.weight(.medium))
+                    if let error { Label(LocalizedStringKey(error), systemImage: "exclamationmark.circle.fill").font(.caption.weight(.medium))
                         .foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Palette.card) }
                 }
                 .navigationTitle("手动导入包裹").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-                .onAppear { if title.isEmpty { title = SMSDraftReader.read("", history: store.parcels)?.title ?? "" } }
+                .alert("包裹已存在", isPresented: $showingDuplicateNotice) {
+                    Button("知道了") { dismiss() }
+                } message: { Text("已合并到原包裹，没有重复添加。原有取件状态保持不变。") }
+                .onAppear {
+                    clipboard.isEditing = true
+                    if title.isEmpty { title = SMSDraftReader.read("", history: store.parcels)?.title ?? "" }
+                    number = initialTrackingNumber; carrier = initialCarrier
+                    if !initialSMS.isEmpty { sms = initialSMS }
+                }
+                .onDisappear { clipboard.isEditing = false }
                 .onChange(of: sms) { _, text in
                     guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                     guard let draft = SMSDraftReader.read(text, history: store.parcels) else { recognitionNote = "识别失败，请核对填写"; return }
-                    title = draft.title; station = draft.station; code = draft.pickupCode; carrier = draft.carrier
-                    number = draft.trackingNumber; sender = draft.sender ?? draft.carrier
+                    title = draft.title; station = draft.station; code = draft.pickupCode; carrier = draft.carrier.isEmpty ? initialCarrier : draft.carrier
+                    number = draft.trackingNumber.isEmpty ? initialTrackingNumber : draft.trackingNumber; sender = draft.sender ?? draft.carrier
                     providerID = store.provider(draft.providerID) == nil ? "manual" : draft.providerID
                     candidates = draft.codeCandidates; recognitionNote = draft.message; error = nil
                 }
@@ -114,8 +128,8 @@ struct AddParcelView: View {
     }
     private func field(_ label: String, placeholder: String, value: Binding<String>, monospaced: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
-            TextField(placeholder, text: value).font(monospaced ? .system(.body, design: .monospaced) : .body)
+            Text(LocalizedStringKey(label)).font(.caption).foregroundStyle(.secondary)
+            TextField(LocalizedStringKey(placeholder), text: value).font(monospaced ? .system(.body, design: .monospaced) : .body)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().padding(12)
                 .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12))
                 .onChange(of: value.wrappedValue) { _, _ in error = nil }
@@ -126,7 +140,8 @@ struct AddParcelView: View {
                           source: sms.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "manual" : "sms", smsOriginal: sms, smsSender: sender)
         if error == nil {
             if !sms.isEmpty && providerID == "manual" && store.stationCredentials[station] == nil { store.rememberCredential("sms", for: station) }
-            dismiss()
+            if store.lastImportWasDuplicate { showingDuplicateNotice = true }
+            else { dismiss() }
         }
     }
 }

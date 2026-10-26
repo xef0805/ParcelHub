@@ -17,7 +17,7 @@
 | deppon | [德邦快递-德邦官方账号 超过3公斤，大件发德邦](https://apps.apple.com/cn/app/%E5%BE%B7%E9%82%A6%E5%BF%AB%E9%80%92-%E5%BE%B7%E9%82%A6%E5%AE%98%E6%96%B9%E8%B4%A6%E5%8F%B7-%E8%B6%85%E8%BF%873%E5%85%AC%E6%96%A4-%E5%A4%A7%E4%BB%B6%E5%8F%91%E5%BE%B7%E9%82%A6/id914237562?uo=4) | CHINA DEPPON LOGISTICS Co., LTD., |
 | ems | [邮政EMS](https://apps.apple.com/cn/app/%E9%82%AE%E6%94%BFems/id1242727213?uo=4) | CHINA POSTAL EXPRESS & LOGIST ICS CO LTD |
 | post | [中国邮政](https://apps.apple.com/cn/app/%E4%B8%AD%E5%9B%BD%E9%82%AE%E6%94%BF/id661697937?uo=4) | China Post Group Company |
-| yishoufa | [驿收发](https://www.yshoufa.com/) | 驿收发官方网站 |
+| yishoufa | [驿收发官方小程序桌面页](https://wxmpurl.cn/jp2yFvvjJfl) | 驿收发官方小程序头像，640 × 640 原图 |
 | jtexpress | [极兔速递](https://www.jtexpress.com.cn/) | 极兔速递官方网站 |
 
 图片下载于 2026-10-25，实际图片 URL、原尺寸和校验值见 shared/brand-assets.json。App 使用打包素材，不在运行时请求图片服务器。
@@ -25,3 +25,5 @@
 2026-10-26 新增拼多多官方图标；应用主图标、应用内 logo 和页面预览统一替换为用户提供的新版 `logo2.png`，仅生成所需尺寸，不增加外围白边。
 
 0.6 移除拼多多、妈妈驿站、熊猫快收的专用图标与身份码入口。菜鸟、京东图标仅保留为承运物流/短信发件方标识，不再作为身份码平台。当前共 15 个品牌素材，另有应用主图标与系统短信图形。
+
+0.7 于 2026-10-26 将驿收发旧低分辨率图标替换为已核对昵称的官方小程序头像原图（640 × 640），未使用插值放大旧 favicon。

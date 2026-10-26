@@ -1,5 +1,21 @@
 import Foundation
 import Combine
+import Network
+
+@MainActor
+final class NetworkStatus: ObservableObject {
+    @Published private(set) var isOffline = false
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "ParcelHub.network-status")
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let offline = path.status != .satisfied
+            Task { @MainActor [weak self] in self?.isOffline = offline }
+        }
+        monitor.start(queue: queue)
+    }
+    deinit { monitor.cancel() }
+}
 
 /// 仅在 App 前台刷新已接入的官方网页；不申请短信、定位或后台常驻权限。
 @MainActor
@@ -9,14 +25,25 @@ final class OfficialSyncController: ObservableObject {
     @Published private(set) var status = "正在等待刷新"
     @Published private(set) var needsLogin = false
     private let store: ParcelStore
+    private let network: NetworkStatus
     private var subscriptions = Set<AnyCancellable>()
     private var timer: Timer?
     private var active = false
     private var lastAttempt: Date?
     private var watchdog: Task<Void, Never>?
 
-    init(store: ParcelStore) {
+    init(store: ParcelStore, network: NetworkStatus) {
         self.store = store
+        self.network = network
+        network.$isOffline.removeDuplicates().dropFirst().sink { [weak self] offline in
+            guard let self else { return }
+            if offline {
+                self.session.stop(); self.finish(); self.status = AppServiceIssue.offline.message
+            } else if self.active && self.store.autoSyncEnabled && !self.needsLogin {
+                self.refresh(force: true)
+            } else if self.needsLogin { self.status = AppServiceIssue.login.message }
+            else if !self.store.autoSyncEnabled { self.status = "自动刷新已关闭，可下拉刷新" }
+        }.store(in: &subscriptions)
         session.$readResult.sink { [weak self] result in
             guard let self, self.active, let result else { return }
             self.finish()
@@ -30,14 +57,14 @@ final class OfficialSyncController: ObservableObject {
                 }
             } else {
                 self.needsLogin = result.state == "login_required"
-                self.status = self.needsLogin ? "请到“我的 → 设置”登录淘宝" : "未完整读取，原有包裹已保留"
+                self.status = self.needsLogin ? AppServiceIssue.login.message : AppServiceIssue.incomplete.message
             }
         }.store(in: &subscriptions)
         session.$hasError.sink { [weak self] failed in
             guard let self, failed, self.active else { return }
             self.finish()
-            self.needsLogin = self.session.status.contains("登录")
-            self.status = self.needsLogin ? "请到“我的 → 设置”登录淘宝" : "自动刷新未完成，可下拉重试"
+            if self.session.failure == .login { self.needsLogin = true }
+            self.status = self.session.status
         }.store(in: &subscriptions)
     }
 
@@ -58,6 +85,7 @@ final class OfficialSyncController: ObservableObject {
 
     func refresh(force: Bool = false) {
         guard active, !isRefreshing else { return }
+        guard !network.isOffline else { status = AppServiceIssue.offline.message; return }
         guard force || (store.autoSyncEnabled && !needsLogin) else { return }
         guard force || (lastAttempt.map { Date().timeIntervalSince($0) >= 60 } ?? true) else { return }
         lastAttempt = Date()
@@ -71,7 +99,7 @@ final class OfficialSyncController: ObservableObject {
             guard let self, self.isRefreshing else { return }
             self.session.stop()
             self.finish()
-            self.status = "本次刷新超时，原有包裹已保留"
+            self.status = AppServiceIssue.timeout.message
         }
     }
 

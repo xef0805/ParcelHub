@@ -29,20 +29,30 @@ enum IdentityLinkReader {
     }
 
     @MainActor
-    static func resolve(_ value: String, for provider: PickupProvider) async -> URL? {
-        guard let parsed = parse(value, for: provider), parsed.kind == "launchURL", let url = URL(string: value) else { return nil }
+    static func resolve(_ value: String, for provider: PickupProvider) async throws -> URL {
+        guard let parsed = parse(value, for: provider), parsed.kind == "launchURL", let url = URL(string: value) else { throw AppServiceIssue.expiredLink }
         if url.scheme == "weixin" { return url }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        guard let (data, response) = try? await session.data(from: url), !Task.isCancelled,
-              let response = response as? HTTPURLResponse, response.statusCode == 200,
-              let finalURL = response.url, parse(finalURL.absoluteString, for: provider)?.kind == "launchURL",
-              data.count <= 512_000, let html = String(data: data, encoding: .utf8),
-              let result = parse(value, for: provider, landingHTML: html), let resolved = result.resolvedURL else { return nil }
-        return URL(string: resolved)
+        do {
+            let (data, response) = try await session.data(from: url)
+            try Task.checkCancellation()
+            guard let response = response as? HTTPURLResponse else { throw AppServiceIssue.unavailable }
+            if response.statusCode >= 500 || response.statusCode == 429 { throw AppServiceIssue.unavailable }
+            guard response.statusCode == 200, let finalURL = response.url,
+                  parse(finalURL.absoluteString, for: provider)?.kind == "launchURL", data.count <= 512_000,
+                  let html = String(data: data, encoding: .utf8),
+                  let result = parse(value, for: provider, landingHTML: html),
+                  let resolved = result.resolvedURL, let target = URL(string: resolved) else { throw AppServiceIssue.expiredLink }
+            return target
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            throw AppServiceIssue.from(error)
+        }
     }
+
 }
 
 struct PickupProvider: Codable, Identifiable, Hashable {

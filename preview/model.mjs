@@ -121,6 +121,7 @@ export function coalesceParcels(records) {
     if(index<0){result.push({...p});continue;}
     let merged=result[index];for(const credential of pickupCredentials(p))merged=attachCredential(merged,credential);
     merged.addedAt=Date.parse(merged.addedAt)<Date.parse(p.addedAt)?merged.addedAt:p.addedAt;
+    merged.awaitingArrival=merged.awaitingArrival===true&&p.awaitingArrival===true;
     merged.collectedAt=[merged.collectedAt,p.collectedAt].filter(Boolean).sort((a,b)=>Date.parse(b)-Date.parse(a))[0]||null;
     merged.deletedAt=merged.deletedAt||p.deletedAt;
     merged.smsFingerprint=merged.smsFingerprint||p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null);
@@ -140,11 +141,26 @@ export function addParcel(state, input, providers) {
   if(index<0)parcels.unshift(parcel);else{
     const previous=parcels[index];if(previous.deletedAt)throw new Error('该包裹的已取记录已删除，不会重复导入');
     let merged={...previous,trackingNumber:previous.trackingNumber||parcel.trackingNumber,carrier:previous.carrier||parcel.carrier};
+    if(previous.awaitingArrival===true)Object.assign(merged,{awaitingArrival:false,station:parcel.station,pickupCode:parcel.pickupCode,providerID:parcel.providerID,source:parcel.source});
     if(parcel.smsOriginal&&identityText(parcel.smsOriginal)!==identityText(previous.smsOriginal))Object.assign(merged,{title:previous.smsOriginal?previous.title:parcel.title,smsOriginal:parcel.smsOriginal,smsSender:parcel.smsSender,smsImportedAt:now,smsFingerprint:parcel.smsFingerprint});
     parcels[index]=attachCredential(merged,{providerID:parcel.providerID,station:parcel.station,pickupCode:parcel.pickupCode,source:parcel.source,isCurrent:true,lastSeenAt:now});
   }
-  return {...state,parcels};
+  return {...state,parcels,lastImportWasDuplicate:index>=0};
 }
+export function addTracking(state,input){
+  const number=identityText(input.trackingNumber),carrier=clean(input.carrier),title=clean(input.title);
+  if(/[\r\n]/.test(input.trackingNumber||''))throw new Error('每次请只导入一个完整运单号');
+  if(!/^[A-Z0-9]{8,40}$/.test(number)||!/[0-9]/.test(number)||/^1[3-9]\d{9}$/.test(number))throw new Error('请填写8–40位完整运单号，不能使用手机号');
+  if(title.length>60||carrier.length>30)throw new Error('填写内容过长');
+  const parcel={id:crypto.randomUUID(),title:title||(carrier?carrier+'包裹':'单号导入包裹'),providerID:'manual',station:'',pickupCode:'',carrier,trackingNumber:number,addedAt:new Date().toISOString(),collectedAt:null,isDemo:false,source:'tracking',awaitingArrival:true};
+  const parcels=coalesceParcels(state.parcels),index=matchParcel(parcel,parcels);
+  if(index<0)parcels.unshift(parcel);else{
+    if(parcels[index].deletedAt)throw new Error('该包裹记录已删除，不会重复导入');
+    parcels[index]={...parcels[index],carrier:parcels[index].carrier||carrier};
+  }
+  return {...state,parcels,lastImportWasDuplicate:index>=0};
+}
+export function filterWatching(state){return state.parcels.filter(p=>!p.isDemo&&!p.deletedAt&&!p.collectedAt&&p.awaitingArrival===true);}
 export function deleteCollected(state,id){
   return {...state,parcels:state.parcels.map(p=>p.id===id&&p.collectedAt?{...p,deletedAt:new Date().toISOString(),smsFingerprint:p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null),smsOriginal:null,smsSender:null,smsImportedAt:null}:p)};
 }
@@ -154,7 +170,7 @@ export function toggleCollected(state, id) {
 
 export function filterParcels(state, providers, { collected = false, providerID = 'all', search = '' } = {}) {
   const term = search.trim().toLocaleLowerCase();
-  return state.parcels.filter(p => !p.deletedAt && Boolean(p.collectedAt) === collected && (collected || (pickupCredentials(p).some(c=>c.source.endsWith('-web')) ? pickupCredentials(p).some(c=>c.source.endsWith('-web')&&c.isCurrent) : p.inLatestOfficialSnapshot !== false)) && (providerID === 'all' || p.providerID === providerID) &&
+  return state.parcels.filter(p => !p.deletedAt && Boolean(p.collectedAt) === collected && (collected || (p.awaitingArrival!==true && (pickupCredentials(p).some(c=>c.source.endsWith('-web')) ? pickupCredentials(p).some(c=>c.source.endsWith('-web')&&c.isCurrent) : p.inLatestOfficialSnapshot !== false))) && (providerID === 'all' || p.providerID === providerID) &&
     (!term || [p.title, p.station, p.pickupCode, p.trackingNumber, p.carrier, providers.find(s => s.id === p.providerID)?.name || '']
       .join(' ').toLocaleLowerCase().includes(term)));
 }
@@ -180,6 +196,7 @@ export function validateSavedState(value, catalog) {
     for (const key of ['smsOriginal','smsSender','smsImportedAt','smsFingerprint','deletedAt']) {
       if (p[key] !== undefined && p[key] !== null && typeof p[key] !== 'string') throw new Error('短信记录损坏');
     }
+    if(p.awaitingArrival!==undefined&&p.awaitingArrival!==null&&typeof p.awaitingArrival!=='boolean')throw new Error('包裹状态损坏');
     if (p.smsOriginal?.length > 8000 || (p.credentials !== undefined && p.credentials !== null && (!Array.isArray(p.credentials)
         || p.credentials.some(c=>!c||!['providerID','station','pickupCode','source','lastSeenAt'].every(k=>typeof c[k]==='string')||typeof c.isCurrent!=='boolean')))) throw new Error('取件凭证损坏');
     parcelIDs.add(p.id);
@@ -205,7 +222,7 @@ export function mergeOfficialSnapshot(state, snapshot) {
   for(const row of rows){
     const index=matchParcel(row,parcels,Date.parse(snapshot.readAt)||Date.now()),previous=index>=0?parcels[index]:null;
     let incoming={...previous,...row,title:previous?.title||row.title,id:previous?.id||crypto.randomUUID(),addedAt:previous?.addedAt||snapshot.readAt,collectedAt:previous?.collectedAt||null,isDemo:false,
-      providerID:'taobao',source:'taobao-web',lastReadAt:snapshot.readAt,inLatestOfficialSnapshot:true};
+      providerID:'taobao',source:'taobao-web',lastReadAt:snapshot.readAt,inLatestOfficialSnapshot:true,awaitingArrival:false};
     incoming=attachCredential(incoming,{providerID:'taobao',station:row.station,pickupCode:row.pickupCode,source:'taobao-web',isCurrent:true,lastSeenAt:snapshot.readAt});
     if(index>=0)parcels[index]=incoming;else parcels.unshift(incoming);
   }return {...state,parcels,lastOfficialReadAt:snapshot.readAt};

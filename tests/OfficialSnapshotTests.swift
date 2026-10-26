@@ -3,11 +3,22 @@ import Foundation
 @main
 struct OfficialSnapshotTests {
     static func main() throws {
+        precondition(AppServiceIssue.from(URLError(.notConnectedToInternet)) == .offline)
+        precondition(AppServiceIssue.from(URLError(.networkConnectionLost)) == .offline)
+        precondition(AppServiceIssue.from(URLError(.timedOut)) == .timeout)
+        precondition(AppServiceIssue.from(AppServiceIssue.expiredLink) == .expiredLink)
+        precondition(AppServiceIssue.from(NSError(domain: "other", code: -1009)) == .unavailable)
         let now = Date(timeIntervalSince1970: 1_000)
         let row = OfficialParcelRead(providerID: "cainiao", title: "测试包裹", station: "测试驿站", pickupCode: "01-02-0003", carrier: "中通", trackingNumber: "TEST00001")
         let snapshot = OfficialPageRead(state: "ready", message: "", parcels: [row], expectedCount: 1, readAt: "test")
         let first = try OfficialSnapshotMerge.applying(snapshot, to: [], now: now)
         precondition(first.count == 1 && first[0].providerID == "taobao" && first[0].pickupCode == "01-02-0003")
+        var watched = Parcel(id: UUID(), title: "单号导入测试", providerID: "manual", station: "", pickupCode: "", carrier: row.carrier,
+                             trackingNumber: row.trackingNumber, addedAt: now, isDemo: false, source: "tracking")
+        watched.awaitingArrival = true
+        precondition(!watched.isPending)
+        let arrived = try OfficialSnapshotMerge.applying(snapshot, to: [watched], now: now)
+        precondition(arrived.count == 1 && arrived[0].id == watched.id && arrived[0].isPending && arrived[0].awaitingArrival == false)
         var legacy = first[0]
         legacy.source = "cainiao-web"
         legacy.providerID = "cainiao"

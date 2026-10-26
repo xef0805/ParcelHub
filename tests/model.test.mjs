@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { demoState, addParcel, toggleCollected, filterParcels, validateSavedState, orderedProviders, reorderProvider, bindStationCredential, boundStationProvider, preferredCredentialProvider, credentialProviders, deleteCollected, pickupCredentials, coalesceParcels, matchParcel, mergeOfficialSnapshot, groupCollected } from '../preview/model.mjs';
+import { demoState, addParcel, addTracking, filterWatching, toggleCollected, filterParcels, validateSavedState, orderedProviders, reorderProvider, bindStationCredential, boundStationProvider, preferredCredentialProvider, credentialProviders, deleteCollected, pickupCredentials, coalesceParcels, matchParcel, mergeOfficialSnapshot, groupCollected } from '../preview/model.mjs';
 
 const catalog = JSON.parse(await readFile(new URL('../shared/catalog.json', import.meta.url), 'utf8'));
 const draft = { title: '真实手动记录', station: '测试取件点', providerID: 'fcbox', pickupCode: '000012', carrier: '顺丰', trackingNumber: 'SF00001' };
@@ -104,6 +104,14 @@ test('同一短信重复导入只保留一条与原导入时间，已取件不�
   const collected=toggleCollected(again,again.parcels[0].id);
   assert.equal(filterParcels(addParcel(collected,smsDraft,catalog),catalog).length,0);
 });
+test('导入结果明确区分新建与重复合并，供界面展示重复提示',()=>{
+  const first=addParcel(empty(),smsDraft,catalog);
+  assert.equal(first.lastImportWasDuplicate,false);
+  const merged=addParcel(first,smsDraft,catalog);
+  assert.equal(merged.lastImportWasDuplicate,true);assert.equal(merged.parcels.length,1);
+  const newParcel=addParcel(merged,{...smsDraft,pickupCode:'000013',trackingNumber:'SF00002',smsOriginal:'另一条通知：取件码000013。'},catalog);
+  assert.equal(newParcel.lastImportWasDuplicate,false);assert.equal(newParcel.parcels.length,2);
+});
 test('短信与不同平台同运单合并，平台取件码与原文分别保留',()=>{
   const first=addParcel(empty(),smsDraft,catalog);
   const snapshot={state:'ready',expectedCount:1,readAt:new Date().toISOString(),parcels:[{...draft,providerID:'taobao',pickupCode:'1-2-003',title:'官方包裹',carrier:'顺丰速运'}]};
@@ -150,4 +158,37 @@ test('损坏的原文或来源凭证必须拒绝读取，不能覆盖存档',()=
   const first=addParcel(empty(),smsDraft,catalog);
   assert.throws(()=>validateSavedState({...first,parcels:first.parcels.map(p=>({...p,smsOriginal:42}))},catalog),/损坏/);
   assert.throws(()=>validateSavedState({...first,parcels:first.parcels.map(p=>({...p,credentials:[{}]}))},catalog),/损坏/);
+});
+test('单号导入在待到站显示，不伪造取件码或加入待取数量；重复导入给出结果',()=>{
+  const first=addTracking(empty(),{trackingNumber:' sf0000000001 ',carrier:'顺丰'});
+  assert.equal(filterWatching(first).length,1);assert.equal(filterParcels(first,catalog).length,0);
+  assert.equal(first.parcels[0].pickupCode,'');assert.equal(first.parcels[0].station,'');
+  const duplicate=addTracking(first,{trackingNumber:'SF0000000001',carrier:'顺丰速运'});
+  assert.equal(duplicate.parcels.length,1);assert.equal(duplicate.lastImportWasDuplicate,true);
+  assert.equal(validateSavedState(JSON.parse(JSON.stringify(first)),catalog).parcels.length,1);
+});
+test('待到站记录收到官方完整取件信息时合并为同一包裹',()=>{
+  const first=addTracking(empty(),{trackingNumber:'SF00001X',carrier:'顺丰'});
+  const next=mergeOfficialSnapshot(first,{state:'ready',expectedCount:1,readAt:new Date().toISOString(),parcels:[{...draft,trackingNumber:'SF00001X',providerID:'taobao'}]});
+  assert.equal(next.parcels.length,1);assert.equal(next.parcels[0].id,first.parcels[0].id);
+  assert.equal(filterWatching(next).length,0);assert.equal(filterParcels(next,catalog).length,1);assert.equal(next.parcels[0].pickupCode,draft.pickupCode);
+});
+test('短信补全待到站包裹时保留记录标识，增加原文并移动到待取',()=>{
+  const incoming={...smsDraft,trackingNumber:'SF0000001',smsOriginal:smsDraft.smsOriginal.replace('SF00001','SF0000001')};
+  const first=addTracking(empty(),{trackingNumber:incoming.trackingNumber,carrier:incoming.carrier});
+  const next=addParcel(first,incoming,catalog);
+  assert.equal(next.parcels.length,1);assert.equal(next.parcels[0].id,first.parcels[0].id);
+  assert.equal(filterWatching(next).length,0);assert.equal(filterParcels(next,catalog).length,1);assert.equal(next.parcels[0].smsOriginal,incoming.smsOriginal);
+});
+test('空官方快照不删除单号导入记录，已存在待取件不退回待到站',()=>{
+  const first=addTracking(empty(),{trackingNumber:'SF0000000001',carrier:'顺丰'});
+  const next=mergeOfficialSnapshot(first,{state:'ready',expectedCount:0,readAt:new Date().toISOString(),parcels:[]});
+  assert.equal(filterWatching(next).length,1);
+  const incoming={...smsDraft,trackingNumber:'SF0000001',smsOriginal:smsDraft.smsOriginal.replace('SF00001','SF0000001')};
+  const ready=addParcel(empty(),incoming,catalog);
+  const duplicate=addTracking(ready,{trackingNumber:incoming.trackingNumber,carrier:incoming.carrier});
+  assert.equal(filterWatching(duplicate).length,0);assert.equal(filterParcels(duplicate,catalog).length,1);
+});
+test('单号导入拒绝手机号、短验证码、纯字母和多行单号',()=>{
+  for(const number of ['13800000000','123456','PASSWORD','SF123456789012\nJD123456789012'])assert.throws(()=>addTracking(empty(),{trackingNumber:number,carrier:''}));
 });

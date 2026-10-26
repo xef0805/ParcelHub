@@ -6,7 +6,7 @@
   if (lines.some(line => /接口超时|请求超时|网络异常|网络错误|服务开小差|系统繁忙|访问受限|请完成验证/.test(line))) {
     return result('error', '官方页面返回错误或验证要求，原有记录保持不变');
   }
-  if (lines.some(line => /您需要登录|请先登录|账号密码登录|登录已失效|登录过期/.test(line))) {
+  if (lines.some(line => /您需要登录|请先登录|账号密码登录|登录已失效|登录过期|请重新登录|登录状态已失效|会话已过期/.test(line))) {
     return result('login_required', '请先在官方页面完成登录');
   }
   if (lines.some(line => /^(加载中|正在加载|正在刷新)[.。…]*$/.test(line))) {

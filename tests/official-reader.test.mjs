@@ -6,6 +6,13 @@ import { mergeOfficialSnapshot, demoState, filterParcels } from '../preview/mode
 
 const source = await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8');
 const read = vm.runInNewContext(source);
+test('明确的重新登录与会话过期文案不会被当作空清单', () => {
+  for (const text of ['请重新登录', '登录状态已失效', '会话已过期']) {
+    const result = read(`${text}\n待取件\n0\n暂无待取件`);
+    assert.equal(result.state, 'login_required');
+    assert.equal(result.expectedCount, null);
+  }
+});
 // 以下均为虚构测试数据，不包含实际账号、真实运单或真实取件码。
 const page = ['身份码', '待取件', '2', '追踪中', '已签收', '3', '测试社区菜鸟驿站',
   '看包裹', '01-2-0001', '今日到站', '本人 测* 100****0000', '圆通 TESTYT0000001',

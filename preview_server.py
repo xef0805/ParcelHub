@@ -14,7 +14,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
     def allowed_path(self):
         path = unquote(urlsplit(self.path).path)
         return '..' not in path.split('/') and (path.startswith('/preview/') or path in (
-            '/shared/catalog.json', '/shared/sms-reader.js', '/shared/brand-assets.json', '/shared/identity-link.js'))
+            '/shared/catalog.json', '/shared/sms-reader.js', '/shared/brand-assets.json', '/shared/identity-link.js', '/shared/import-reader.js'))
 
     def do_HEAD(self):
         if not self.allowed_path():
@@ -35,7 +35,10 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             try:
                 data = json.loads(snapshot.read_text(encoding='utf-8'))
                 if data.get('state') != 'ready':
-                    raise ValueError('Incomplete official read')
+                    if data.get('state') not in ('login_required', 'loading', 'error'):
+                        raise ValueError('Invalid official read')
+                    # 非完整状态仅传递提示，不向界面提供残缺包裹列表。
+                    data = {'state': data['state'], 'message': str(data.get('message', ''))}
                 body = json.dumps(data, ensure_ascii=False).encode('utf-8')
             except (ValueError, OSError):
                 self.send_error(503)

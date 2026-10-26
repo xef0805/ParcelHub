@@ -32,6 +32,7 @@ enum OfficialSnapshotMerge {
             var parcel = index.map { parcels[$0] } ?? Parcel(id: UUID(), title: row.title, providerID: "taobao", station: row.station,
                 pickupCode: row.pickupCode, carrier: row.carrier, trackingNumber: row.trackingNumber, addedAt: now, isDemo: false, source: "taobao-web")
             parcel.providerID = "taobao"
+            parcel.awaitingArrival = false
             parcel.attach(ParcelCredential(providerID: "taobao", station: row.station, pickupCode: row.pickupCode,
                                             source: "taobao-web", isCurrent: true, lastSeenAt: now))
             parcel.station = row.station

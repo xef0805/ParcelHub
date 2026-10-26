@@ -194,16 +194,16 @@
     {
       "id": "yishoufa",
       "name": "驿收发",
-      "publisher": "驿收发官方网站",
-      "url": "https://www.yshoufa.com/favicons.ico?22",
-      "source": "https://www.yshoufa.com/",
+      "publisher": "驿收发官方微信小程序",
+      "url": "https://wx.qlogo.cn/mmhead/0wRpPfN90ibC9wHakIek7KzFkyaEK6UMnc10UcvaZsDnAakichKdZncibz87FPjVSp0zDfbZian9FTs/0",
+      "source": "https://wxmpurl.cn/jp2yFvvjJfl",
       "originalSize": [
-        32,
-        32
+        640,
+        640
       ],
       "assetName": "Brand-yishoufa",
       "preview": "/preview/assets/yishoufa.png",
-      "sha256": "b82202a0e65ad7425ea3ba32b938edadaf8170cefd90241ce4522786f898891d"
+      "sha256": "a3eacdbeca1af5e6956864a0fe8c3b2d2379bb4bbebc1aaba136341c24d9351c"
     },
     {
       "id": "jtexpress",

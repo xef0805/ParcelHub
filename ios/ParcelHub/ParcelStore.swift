@@ -7,6 +7,7 @@ final class ParcelStore: ObservableObject {
     @Published private(set) var providers: [PickupProvider] = []
     @Published private(set) var parcels: [Parcel] = []
     @Published var storageWarning: String?
+    @Published private(set) var lastImportWasDuplicate = false
     @Published private(set) var stationCredentials: [String: String] = [:]
     @Published private(set) var lastOfficialReadAt: Date?
     @Published private(set) var preferredCredentialID: String?
@@ -63,6 +64,7 @@ final class ParcelStore: ObservableObject {
     // 隐藏旧演示记录，但保留存储，不删除用户原有数据。
     var pending: [Parcel] { parcels.filter { $0.isPending } }
     var collected: [Parcel] { parcels.filter { !$0.isDemo && $0.isCollected && $0.deletedAt == nil } }
+    var watching: [Parcel] { parcels.filter { !$0.isDemo && !$0.isCollected && $0.deletedAt == nil && $0.awaitingArrival == true } }
     var smsParcels: [Parcel] { parcels.filter { !$0.isDemo && $0.deletedAt == nil && $0.hasSMS }.sorted { ($0.smsImportedAt ?? $0.addedAt) > ($1.smsImportedAt ?? $1.addedAt) } }
     var credentialProviders: [PickupProvider] { providers.filter { $0.id != "manual" && enabledProviderIDs.contains($0.id) } }
     func saveIdentityBinding(_ binding: IdentityBinding?, for id: String) {
@@ -119,6 +121,7 @@ final class ParcelStore: ObservableObject {
 
     func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String,
              source: String = "manual", smsOriginal: String? = nil, smsSender: String? = nil) -> String? {
+        lastImportWasDuplicate = false
         if storageWarning != nil { return "本地数据异常，暂时无法保存新记录" }
         if let error = ParcelDraftValidator.validate(title: title, station: station, code: code, providerID: providerID, providers: providers) { return error }
         let now = Date()
@@ -135,6 +138,12 @@ final class ParcelStore: ObservableObject {
         do {
             if let index = try ParcelIdentity.match(incoming, in: parcels, now: now) {
                 guard parcels[index].deletedAt == nil else { return "该包裹的已取记录已删除，不会重复导入" }
+                lastImportWasDuplicate = true
+                if parcels[index].awaitingArrival == true {
+                    parcels[index].awaitingArrival = false
+                    parcels[index].station = incoming.station; parcels[index].pickupCode = incoming.pickupCode
+                    parcels[index].providerID = providerID; parcels[index].source = source
+                }
                 if incoming.hasSMS && ParcelIdentity.text(incoming.smsOriginal ?? "") != ParcelIdentity.text(parcels[index].smsOriginal ?? "") {
                     if !parcels[index].hasSMS { parcels[index].title = incoming.title }
                     parcels[index].smsOriginal = incoming.smsOriginal; parcels[index].smsSender = incoming.smsSender; parcels[index].smsImportedAt = now
@@ -156,6 +165,30 @@ final class ParcelStore: ObservableObject {
         parcels[index].smsFingerprint = parcels[index].smsFingerprint ?? parcels[index].smsOriginal.map { ParcelIdentity.fingerprint($0) }
         parcels[index].smsOriginal = nil; parcels[index].smsSender = nil; parcels[index].smsImportedAt = nil
         persistParcels()
+    }
+
+    func addTracking(number: String, carrier: String, title: String) -> String? {
+        lastImportWasDuplicate = false
+        guard storageWarning == nil else { return "本地数据异常，暂时无法保存" }
+        guard !number.contains("\n"), !number.contains("\r") else { return "每次请只导入一个完整运单号" }
+        let clean = ParcelIdentity.text(number)
+        guard clean.range(of: "^[A-Z0-9]{8,40}$", options: .regularExpression) != nil,
+              clean.range(of: "[0-9]", options: .regularExpression) != nil,
+              clean.range(of: "^1[3-9][0-9]{9}$", options: .regularExpression) == nil else { return "请填写8–40位完整运单号，不能使用手机号" }
+        let company = carrier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.count <= 60, company.count <= 30 else { return "填写内容过长" }
+        var parcel = Parcel(id: UUID(), title: name.isEmpty ? (company.isEmpty ? "单号导入包裹" : company + "包裹") : name,
+            providerID: "manual", station: "", pickupCode: "", carrier: company, trackingNumber: clean, addedAt: Date(), isDemo: false, source: "tracking")
+        parcel.awaitingArrival = true
+        do {
+            if let index = try ParcelIdentity.match(parcel, in: parcels) {
+                guard parcels[index].deletedAt == nil else { return "该包裹记录已删除，不会重复导入" }
+                lastImportWasDuplicate = true
+                if parcels[index].carrier.isEmpty { parcels[index].carrier = company }
+            } else { parcels.insert(parcel, at: 0) }
+            persistParcels(); return storageWarning
+        } catch { return error.localizedDescription }
     }
 
     func toggleCollected(_ parcel: Parcel) {

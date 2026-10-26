@@ -29,6 +29,7 @@ struct Parcel: Codable, Identifiable {
     var smsFingerprint: String? = nil
     var credentials: [ParcelCredential]? = nil
     var deletedAt: Date? = nil
+    var awaitingArrival: Bool? = nil
 
     var isCollected: Bool { collectedAt != nil }
     var hasSMS: Bool { !(smsOriginal ?? "").isEmpty }
@@ -37,7 +38,7 @@ struct Parcel: Codable, Identifiable {
                                           source: source ?? "manual", isCurrent: inLatestOfficialSnapshot != false, lastSeenAt: lastReadAt ?? addedAt)]
     }
     var isPending: Bool {
-        guard !isDemo, !isCollected, deletedAt == nil else { return false }
+        guard !isDemo, !isCollected, deletedAt == nil, awaitingArrival != true else { return false }
         let official = pickupCredentials.filter { $0.source.hasSuffix("-web") }
         return official.isEmpty ? inLatestOfficialSnapshot != false : official.contains { $0.isCurrent }
     }
@@ -89,6 +90,7 @@ enum ParcelIdentity {
                let index = result.firstIndex(where: { !$0.isDemo && text($0.trackingNumber) == text(parcel.trackingNumber) && carrier($0.carrier) == carrier(parcel.carrier) }) {
                 for credential in parcel.pickupCredentials { result[index].attach(credential) }
                 result[index].addedAt = min(result[index].addedAt, parcel.addedAt)
+                result[index].awaitingArrival = (result[index].awaitingArrival == true && parcel.awaitingArrival == true)
                 result[index].collectedAt = [result[index].collectedAt, parcel.collectedAt].compactMap { $0 }.max()
                 result[index].deletedAt = result[index].deletedAt ?? parcel.deletedAt
                 result[index].smsFingerprint = result[index].smsFingerprint ?? parcel.smsFingerprint ?? parcel.smsOriginal.map { fingerprint($0) }
@@ -141,4 +143,31 @@ struct OfficialPageRead: Codable, Equatable {
     var parcels: [OfficialParcelRead]
     var expectedCount: Int?
     var readAt: String
+}
+
+enum AppServiceIssue: Error, LocalizedError, Equatable {
+    case offline, timeout, login, wechatMissing, openFailed, expiredLink, unavailable, incomplete
+    var message: String {
+        switch self {
+        case .offline: return "当前网络不可用，已保留本地包裹。请联网后重试。"
+        case .timeout: return "连接超时，已保留本地包裹。请稍后重试。"
+        case .login: return "淘宝登录已失效或尚未登录，已保留本地包裹。请重新登录后刷新。"
+        case .wechatMissing: return "未检测到可用的微信。请先安装或打开微信，再返回重试。"
+        case .openFailed: return "无法打开微信。请手动打开微信后重试；仍失败时请重新获取小程序链接。"
+        case .expiredLink: return "链接已失效或无法核对目标。请在对应小程序重新获取完整链接，原绑定已保留。"
+        case .unavailable: return "官方服务暂时不可用，已保留本地记录。请稍后重试。"
+        case .incomplete: return "尚未完整读取官方清单，已保留本地包裹。请稍后刷新。"
+        }
+    }
+    var errorDescription: String? { message }
+    static func from(_ error: Error) -> AppServiceIssue {
+        if let issue = error as? AppServiceIssue { return issue }
+        let native = error as NSError
+        guard native.domain == NSURLErrorDomain else { return .unavailable }
+        switch native.code {
+        case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorDataNotAllowed: return .offline
+        case NSURLErrorTimedOut: return .timeout
+        default: return .unavailable
+        }
+    }
 }

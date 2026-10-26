@@ -7,7 +7,7 @@ struct ArrivalMonitoringView: View {
         List {
             Section("已接通") {
                 Label("淘宝 · 前台自动检查", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.blue)
-                Text(sync.status).font(.subheadline)
+                AppMessage(sync.status).font(.subheadline)
                 if let date = store.lastOfficialReadAt { Text("上次成功读取 \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary) }
                 Button("立即检查淘宝待取包裹") { sync.refresh(force: true) }.disabled(sync.isRefreshing)
                 Text("登录后打开或返回 App 时检查，前台每两分钟再检查。新件先要出现在官方清单中；网页成功读取后才加入主页，不承诺驿站入库后固定几分钟内显示。")
