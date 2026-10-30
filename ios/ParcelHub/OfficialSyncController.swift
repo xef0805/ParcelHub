@@ -24,6 +24,7 @@ final class OfficialSyncController: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var status = "正在等待刷新"
     @Published private(set) var needsLogin = false
+    @Published private(set) var isAuthenticating = false
     private let store: ParcelStore
     private let network: NetworkStatus
     private var subscriptions = Set<AnyCancellable>()
@@ -57,7 +58,8 @@ final class OfficialSyncController: ObservableObject {
                 }
             } else {
                 self.needsLogin = result.state == "login_required"
-                self.status = self.needsLogin ? AppServiceIssue.login.message : AppServiceIssue.incomplete.message
+                self.status = self.needsLogin ? AppServiceIssue.login.message
+                    : result.state == "filtered_empty" ? AppServiceIssue.phoneFilter.message : AppServiceIssue.incomplete.message
             }
         }.store(in: &subscriptions)
         session.$hasError.sink { [weak self] failed in
@@ -76,6 +78,7 @@ final class OfficialSyncController: ObservableObject {
             if isRefreshing { lastAttempt = nil }
             session.stop(); finish(); return
         }
+        guard !isAuthenticating else { return }
         guard store.autoSyncEnabled else { session.stop(); finish(); status = "自动刷新已关闭，可下拉刷新"; return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
@@ -84,7 +87,7 @@ final class OfficialSyncController: ObservableObject {
     }
 
     func refresh(force: Bool = false) {
-        guard active, !isRefreshing else { return }
+        guard active, !isRefreshing, !isAuthenticating else { return }
         guard !network.isOffline else { status = AppServiceIssue.offline.message; return }
         guard force || (store.autoSyncEnabled && !needsLogin) else { return }
         guard force || (lastAttempt.map { Date().timeIntervalSince($0) >= 60 } ?? true) else { return }
@@ -108,6 +111,21 @@ final class OfficialSyncController: ObservableObject {
         while isRefreshing {
             do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }
         }
+    }
+
+    func beginAuthentication() {
+        isAuthenticating = true
+        timer?.invalidate(); timer = nil
+        session.stop(); session.load(URL(string: "about:blank")!); finish()
+        needsLogin = true
+        status = "请在此页重新登录淘宝，完成后将返回取件页面。"
+    }
+
+    func endAuthentication() {
+        isAuthenticating = false
+        lastAttempt = nil
+        needsLogin = false
+        setActive(active)
     }
 
     private func finish() {

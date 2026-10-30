@@ -310,13 +310,18 @@
   "无法打开微信。请手动打开微信后重试；仍失败时请重新获取小程序链接。": "Could not open WeChat. Open it manually and try again, or get a new mini-program link.",
   "链接已失效或无法核对目标。请在对应小程序重新获取完整链接，原绑定已保留。": "The link has expired or its destination could not be verified. Get a new full link from the matching mini-program. Your saved link is unchanged.",
   "官方服务暂时不可用，已保留本地记录。请稍后重试。": "The official service is temporarily unavailable. Saved records are kept. Try again later.",
-  "尚未完整读取官方清单，已保留本地包裹。请稍后刷新。": "The official list is incomplete. Saved parcels are kept. Refresh later.",
+  "本轮未能读取完整淘宝清单，已保留本地包裹。请打开官方待取页核对后重试；若网页也缺件，请先检查账号及收件手机号。": "This attempt could not read the complete Taobao list. Saved parcels are kept. Check the official pickup page and retry. If parcels are missing there too, check the account and recipient phone number.",
+  "淘宝网页未返回该手机号的待取件，已保留本地记录。若淘宝 App 中有包裹，请核对网页登录账号，并从右上角菜单在浏览器打开进行比较。": "The Taobao web page returned no pickups for this phone number. Saved records are kept. If parcels appear in the Taobao app, check the web account and use the top-right menu to open the page in a browser for comparison.",
   "尚未取得可用的官方清单，已保留本地包裹。请登录后刷新。": "No usable official list is available. Saved parcels are kept. Sign in and refresh.",
   "页面未能打开，请允许打开官方页面后重试。": "The page could not open. Allow the official page to open and try again.",
   "请在淘宝官方页面完成登录，再返回刷新待取清单。": "Sign in on the official Taobao page, then return and refresh your pickup list.",
   "已请求打开小程序。若未打开，请确认微信可用；若提示链接失效，请重新获取。打开正确后再确认绑定。": "The mini-program was requested. Check WeChat is available if it did not open. Get a new link if it expired. Confirm only after the correct mini-program opens.",
   "仅为已保存的单号记录，可补充取件短信。": "These are saved tracking numbers only. Add a pickup SMS to complete their details.",
-  "版本 0.7.3 · 本地开发版": "Version 0.7.3 · Development build",
-  "涂涂取件 0.7.3": "Tutu Pickup 0.7.3",
-  "涂涂取件 0.7.3 · 本地开发预览": "Tutu Pickup 0.7.3 · Local preview"
+  "版本 0.7.4 · 本地开发版": "Version 0.7.4 · Development build",
+  "涂涂取件 0.7.4": "Tutu Pickup 0.7.4",
+  "涂涂取件 0.7.4 · 本地开发预览": "Tutu Pickup 0.7.4 · Local preview",
+  "请在此页重新登录淘宝，完成后将返回取件页面。": "Sign in to Taobao on this page. You will return to the pickup page afterward.",
+  "重新登录淘宝？": "Sign in to Taobao again?",
+  "退出当前网页登录并重新登录": "Sign out of this web session and sign in again",
+  "将通过淘宝官方页面退出当前网页登录，再在涂涂取件内重新登录。包裹与短信记录会保留。": "The official Taobao page will sign out of this web session. Sign in again within Tutu Pickup. Parcel and SMS records are kept."
 }

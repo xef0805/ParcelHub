@@ -3,6 +3,15 @@ import Foundation
 @main
 struct OfficialSnapshotTests {
     static func main() throws {
+        let destination = URL(string: "https://pages-fast.m.taobao.com/wow/z/uniapp/test/home?first=1&second=2")!
+        let logout = OfficialAuthenticationFlow.logoutURL(returningTo: destination)!
+        precondition(logout.host == "login.m.taobao.com" && logout.path == "/logout.htm")
+        let loginValue = URLComponents(url: logout, resolvingAgainstBaseURL: false)!.queryItems!.first { $0.name == "redirectURL" }!.value!
+        let login = URLComponents(string: loginValue)!
+        precondition(login.host == "login.m.taobao.com" && login.path == "/login.htm")
+        precondition(login.queryItems!.first { $0.name == "redirectURL" }!.value == destination.absoluteString)
+        precondition(OfficialAuthenticationFlow.logoutURL(returningTo: URL(string: "https://pages-fast.m.taobao.com.example.org/")!) == nil)
+        precondition(OfficialAuthenticationFlow.logoutURL(returningTo: URL(string: "http://pages-fast.m.taobao.com/")!) == nil)
         precondition(AppServiceIssue.from(URLError(.notConnectedToInternet)) == .offline)
         precondition(AppServiceIssue.from(URLError(.networkConnectionLost)) == .offline)
         precondition(AppServiceIssue.from(URLError(.timedOut)) == .timeout)
@@ -56,6 +65,7 @@ struct OfficialSnapshotTests {
         precondition(delayed[0].collectedAt == now, "Auto refresh must preserve manual collection while official status is delayed")
         for invalid in [
             OfficialPageRead(state: "error", message: "请求超时", parcels: [], expectedCount: 0, readAt: "test"),
+            OfficialPageRead(state: "filtered_empty", message: "网页未返回当前手机号的包裹", parcels: [], expectedCount: nil, readAt: "test"),
             OfficialPageRead(state: "ready", message: "", parcels: [], expectedCount: nil, readAt: "test"),
             OfficialPageRead(state: "ready", message: "", parcels: [row], expectedCount: 2, readAt: "test"),
             OfficialPageRead(state: "ready", message: "", parcels: [row, row], expectedCount: 2, readAt: "test")

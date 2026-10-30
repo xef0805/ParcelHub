@@ -659,7 +659,7 @@ struct SettingsView: View {
             Section {
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
             } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.3 · 本地开发版").foregroundStyle(.secondary) }
+            Section("关于涂涂取件") { Text("版本 0.7.4 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }
@@ -778,6 +778,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
     @Published var isLoading = true
     @Published var readResult: OfficialPageRead?
     @Published var failure: AppServiceIssue?
+    @Published private(set) var authenticationDestination: URL?
     private var pendingPage = false
     private var generation = 0
     private var readAttempt = 0
@@ -811,6 +812,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
 
     func stop() {
         generation += 1
+        authenticationDestination = nil
         webView.stopLoading()
         readResult = nil
         isLoading = false
@@ -818,6 +820,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
 
     func load(_ url: URL) {
         generation += 1
+        authenticationDestination = nil
         pendingPage = url == Self.parcels
         readAttempt = 0
         readResult = nil
@@ -826,6 +829,13 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         isLoading = true
         hasError = false
         webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30))
+    }
+
+    func reauthenticate(returningTo destination: URL) {
+        guard let url = OfficialAuthenticationFlow.logoutURL(returningTo: destination) else { fail(.unavailable); return }
+        stop()
+        load(url)
+        authenticationDestination = destination
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -840,6 +850,14 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoading = false
+        if let destination = authenticationDestination {
+            guard webView.url?.host == destination.host, webView.url?.path == destination.path else {
+                status = "请在此页重新登录淘宝，完成后将返回取件页面。"
+                return
+            }
+            authenticationDestination = nil
+            pendingPage = destination == Self.parcels
+        }
         status = "官方页面已加载"
         if pendingPage { readPending(); return }
         let currentGeneration = generation
@@ -876,14 +894,19 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
                 self.hasError = true; self.status = "未能读取官方页面，原有包裹保持不变"; return
             }
             // 页面应用异步加载，首次得到的占位零件不得清空已有记录。
-            if result.state == "loading", attempt < 12 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-                    guard let self, self.generation == requestGeneration else { return }
-                    self.readPending()
+            if result.state == "loading" {
+                if attempt < 12 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+                        guard let self, self.generation == requestGeneration else { return }
+                        self.readPending()
+                    }
+                } else {
+                    // 本轮重试已结束，不能继续显示仍在加载；失败不覆盖本地快照。
+                    self.fail(.incomplete)
                 }
                 return
             }
-            self.failure = result.state == "login_required" ? .login : nil
+            self.failure = result.state == "login_required" ? .login : result.state == "filtered_empty" ? .phoneFilter : nil
             self.status = result.state == "ready" ? "正在同步清单…" : result.state == "login_required" ? AppServiceIssue.login.message : result.message
             self.hasError = result.state != "ready"
             self.readResult = result
@@ -936,8 +959,10 @@ struct OfficialPickupWebView: UIViewRepresentable {
 struct OfficialPickupView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ParcelStore
+    @EnvironmentObject private var sync: OfficialSyncController
     @StateObject private var session = OfficialPickupSession()
     @State private var page: Int
+    @State private var confirmingAuthentication = false
     init(initialPage: Int = 1) { _page = State(initialValue: initialPage) }
     private var pageURL: URL { page == 1 ? OfficialPickupSession.identity : OfficialPickupSession.parcels }
     var body: some View {
@@ -946,7 +971,7 @@ struct OfficialPickupView: View {
                 Picker("官方页面", selection: $page) {
                     Text("待取记录").tag(0)
                     Text("身份码").tag(1)
-                }.pickerStyle(.segmented).padding(12)
+                }.pickerStyle(.segmented).padding(12).disabled(session.authenticationDestination != nil)
                 if session.isLoading { ProgressView().frame(maxWidth: .infinity).padding(8) }
                 OfficialPickupWebView(session: session)
             }
@@ -957,18 +982,22 @@ struct OfficialPickupView: View {
                         Button { session.load(OfficialPickupSession.parcels) } label: {
                             Label("读取当前待取件到涂涂取件", systemImage: "arrow.triangle.2.circlepath")
                                 .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        }.buttonStyle(.borderedProminent).disabled(session.isLoading)
+                        }.buttonStyle(.borderedProminent).disabled(session.isLoading || session.authenticationDestination != nil)
                     }
                     if session.hasError {
-                        Button(LocalizedStringKey(session.failure == .login ? "重新登录淘宝" : "重试")) { session.load(pageURL) }
+                        Button("重试") { session.load(pageURL) }
                             .font(.subheadline.weight(.semibold))
+                        if let failure = session.failure, [.login, .phoneFilter, .incomplete].contains(failure) {
+                            Button("重新登录淘宝") { confirmingAuthentication = true }
+                                .font(.subheadline.weight(.semibold))
+                        }
                     }
-                    if page == 0 || session.hasError {
+                    if page == 0 || session.hasError || session.authenticationDestination != nil {
                         AppMessage(session.status).font(.caption)
                             .foregroundStyle(session.hasError ? Color.orange : Color.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }.padding(page == 0 || session.hasError ? 14 : 0).background(.bar)
+                }.padding(page == 0 || session.hasError || session.authenticationDestination != nil ? 14 : 0).background(.bar)
             }
             .navigationTitle(page == 1 ? "淘宝身份码" : "淘宝待取记录").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -976,15 +1005,27 @@ struct OfficialPickupView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("刷新官方页面", systemImage: "arrow.clockwise") { session.load(pageURL) }
+                            .disabled(session.authenticationDestination != nil)
+                        Button("重新登录淘宝", systemImage: "person.crop.circle") { confirmingAuthentication = true }
                         Link("在浏览器打开", destination: pageURL)
                         Text("内容由淘宝官方提供，身份码由官方刷新")
                     } label: { Image(systemName: "ellipsis.circle") }
                 }
             }
+            .confirmationDialog("重新登录淘宝？", isPresented: $confirmingAuthentication, titleVisibility: .visible) {
+                Button("退出当前网页登录并重新登录", role: .destructive) {
+                    sync.beginAuthentication()
+                    session.reauthenticate(returningTo: pageURL)
+                }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("将通过淘宝官方页面退出当前网页登录，再在涂涂取件内重新登录。包裹与短信记录会保留。")
+            }
             .onAppear { session.load(pageURL) }
             .onDisappear {
                 session.stop()
-                NotificationCenter.default.post(name: Notification.Name("ParcelHub.official-session-changed"), object: nil)
+                if sync.isAuthenticating { sync.endAuthentication() }
+                else { NotificationCenter.default.post(name: Notification.Name("ParcelHub.official-session-changed"), object: nil) }
             }
             .onChange(of: page) { _, _ in session.load(pageURL) }
             .onChange(of: session.readResult) { _, result in

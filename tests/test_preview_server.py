@@ -48,7 +48,7 @@ class PreviewSnapshotStatusTests(unittest.TestCase):
             self.assertEqual(json.load(response), snapshot)
 
     def test_incomplete_states_return_status_without_partial_parcels(self):
-        for state in ('login_required', 'loading', 'error'):
+        for state in ('login_required', 'loading', 'error', 'filtered_empty'):
             with self.subTest(state=state):
                 self.write_snapshot({'state': state, 'message': '测试状态', 'parcels': [{'title': '不得当成完整清单'}]})
                 with urlopen(self.url, timeout=3) as response:

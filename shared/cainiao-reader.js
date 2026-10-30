@@ -9,15 +9,19 @@
   if (lines.some(line => /您需要登录|请先登录|账号密码登录|登录已失效|登录过期|请重新登录|登录状态已失效|会话已过期/.test(line))) {
     return result('login_required', '请先在官方页面完成登录');
   }
-  if (lines.some(line => /^(加载中|正在加载|正在刷新)[.。…]*$/.test(line))) {
-    return result('loading', '官方清单仍在加载，保留原有记录');
-  }
+  // 推荐商品也显示“加载中”，不能用整页加载文案否定已完整读取的非空清单。
+  const hasLoading = lines.some(line => /^(加载中|正在加载|正在刷新)[.。…]*$/.test(line));
   const start = lines.findIndex(line => /^待取件(?:\s*[（(]\s*\d+\s*[）)])?$/.test(line));
   if (start < 0) {
     return result('loading', '页面尚未显示完整的待取件数量，请等待后重试');
   }
   const end = lines.findIndex((line, index) => index > start && /^还有包裹未显示/.test(line));
   const section = lines.slice(start + 1, end < 0 ? undefined : end);
+  // 官方可只查询当前选中的手机号；这种空结果不代表账号的全部待取清单为空。
+  const selectedPhoneEmpty = /未查到(?:1\d{2}[*＊]{4}\d{4}|1\d{10})[›>❯→]*的包裹/.test(section.join('').replace(/\s/g, ''));
+  if (selectedPhoneEmpty) {
+    return result('filtered_empty', '淘宝网页未返回该手机号的待取件，已保留本地记录。若淘宝 App 中有包裹，请核对网页登录账号，并从右上角菜单在浏览器打开进行比较。');
+  }
   // 空状态文案可能替代数字角标；仅接受明确完整的空清单提示，空白页面不能清空。
   const emptyPattern = /^(?:(?:暂无|暂时没有|还没有|你还没有|您还没有|没有)待取(?:件|包裹)(?:包裹)?(?:啦|了|哦)?|(?:包裹已)?全部取完(?:了)?|包裹都取完啦)[！!。~～]*$/;
   const explicitlyEmpty = section.some(line => emptyPattern.test(line));
@@ -29,6 +33,9 @@
   if (displayedCount > 0 && explicitlyEmpty) return result('error', '页面数量与空状态不一致，保留原有记录');
   const expectedCount = displayedCount ?? 0;
   if (expectedCount > 100) return result('error', '页面数量超出当前验证范围，暂不导入');
+  if (expectedCount === 0 && hasLoading) {
+    return result('loading', '官方清单仍在加载，保留原有记录');
+  }
   if (expectedCount === 0 && !explicitlyEmpty) {
     return result('loading', '尚未确认官方空清单，保留原有记录');
   }

@@ -29,6 +29,18 @@ test('从官方当前待取件区读取卡片，排除其他状态数量与下�
   assert.equal(result.parcels[0].station, '测试社区菜鸟驿站');
   assert.equal('phone' in result.parcels[0], false);
 });
+
+test('完整非空清单不被页面其他位置的推荐加载文案阻断', () => {
+  for (const text of [page + '\n加载中', '加载中...\n' + page, page.replace('广告内容', '加载中')]) {
+    const result = read(text);
+    assert.equal(result.state, 'ready');
+    assert.equal(result.parcels.length, 2);
+    assert.equal(result.expectedCount, 2);
+  }
+  // 加载中的零件占位与残缺卡片仍不能成为完整快照。
+  assert.notEqual(read('待取件\n0\n暂无待取包裹\n加载中').state, 'ready');
+  assert.notEqual(read(page.replace('韵达 TESTYD0000002', '加载中')).state, 'ready');
+});
 test('接口超时、登录页和未加载数量不能解释成零包裹', () => {
   assert.equal(read('待取件\n0\n接口超时').state, 'error');
   assert.equal(read('您需要登录才能继续访问\n账号密码登录').state, 'login_required');
@@ -42,6 +54,20 @@ test('明确显示零件时可以得到完整空快照', () => {
   const result = read('待取件\n0\n已签收\n4\n暂无待取包裹\n还有包裹未显示？查询取件码');
   assert.equal(result.state, 'ready');
   assert.equal(result.parcels.length, 0);
+});
+
+test('按手机号未查到包裹不能当作加载中或账号完整空清单，也不回传手机号', () => {
+  for (const notice of ['未查到100****0000的包裹', '未查到\n100****0000\n›\n的包裹']) {
+    const result = read(`输入包裹快递单号查询\n待取件\n追踪中\n已签收3\n已退回\n${notice}\n加载中`);
+    assert.equal(result.state, 'filtered_empty');
+    assert.equal(result.expectedCount, null);
+    assert.equal(result.parcels.length, 0);
+    assert.match(result.message, /手机号/);
+    assert.equal(JSON.stringify(result).includes('100****0000'), false);
+    assert.throws(() => mergeOfficialSnapshot(demoState(), JSON.parse(JSON.stringify(result))));
+  }
+  assert.equal(read('待取件\n未查到包裹').state, 'loading');
+  assert.equal(read('请重新登录\n待取件\n未查到100****0000的包裹').state, 'login_required');
 });
 test('官方读取可合并已有手动记录，保留原记录标识和前导零', () => {
   const snapshot = JSON.parse(JSON.stringify(read(page)));

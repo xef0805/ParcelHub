@@ -35,7 +35,7 @@ class PreviewHandler(SimpleHTTPRequestHandler):
             try:
                 data = json.loads(snapshot.read_text(encoding='utf-8'))
                 if data.get('state') != 'ready':
-                    if data.get('state') not in ('login_required', 'loading', 'error'):
+                    if data.get('state') not in ('login_required', 'loading', 'error', 'filtered_empty'):
                         raise ValueError('Invalid official read')
                     # 非完整状态仅传递提示，不向界面提供残缺包裹列表。
                     data = {'state': data['state'], 'message': str(data.get('message', ''))}
