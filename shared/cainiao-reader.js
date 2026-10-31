@@ -17,16 +17,22 @@
   }
   const end = lines.findIndex((line, index) => index > start && /^还有包裹未显示/.test(line));
   const section = lines.slice(start + 1, end < 0 ? undefined : end);
-  // 官方可只查询当前选中的手机号；这种空结果不代表账号的全部待取清单为空。
-  const selectedPhoneEmpty = /未查到(?:1\d{2}[*＊]{4}\d{4}|1\d{10})[›>❯→]*的包裹/.test(section.join('').replace(/\s/g, ''));
+  const codePattern = /^(?:取件码\s*[:：]?\s*)?([A-Za-z0-9]{1,4}-[A-Za-z0-9]{1,4}-[A-Za-z0-9]{1,12})$/;
+  const inlineCount = lines[start].match(/[（(]\s*(\d+)\s*[）)]/);
+  const displayedCount = inlineCount ? Number(inlineCount[1]) : /^\d+$/.test(lines[start + 1] || '') ? Number(lines[start + 1]) : null;
+  // 手机号空状态是待确认的空清单，由读取会话复读确认；不输出手机号。
+  const compactSection = section.join('').replace(/\s/g, '');
+  const selectedPhoneEmpty = /未查到(?:1\d{2}[*＊]{4}\d{4}|1\d{10})[›>❯→]*的包裹/.test(compactSection)
+    || /您的\d+个手机号[›>❯→]*都未查到包裹/.test(compactSection);
   if (selectedPhoneEmpty) {
-    return result('filtered_empty', '淘宝网页未返回该手机号的待取件，已保留本地记录。若淘宝 App 中有包裹，请核对网页登录账号，并从右上角菜单在浏览器打开进行比较。');
+    if (displayedCount > 0 || section.some(line => codePattern.test(line))) {
+      return result('error', '页面空状态与待取卡片不一致，保留原有记录');
+    }
+    return result('filtered_empty', '正在确认空清单，记录暂时保留');
   }
   // 空状态文案可能替代数字角标；仅接受明确完整的空清单提示，空白页面不能清空。
   const emptyPattern = /^(?:(?:暂无|暂时没有|还没有|你还没有|您还没有|没有)待取(?:件|包裹)(?:包裹)?(?:啦|了|哦)?|(?:包裹已)?全部取完(?:了)?|包裹都取完啦)[！!。~～]*$/;
   const explicitlyEmpty = section.some(line => emptyPattern.test(line));
-  const inlineCount = lines[start].match(/[（(]\s*(\d+)\s*[）)]/);
-  const displayedCount = inlineCount ? Number(inlineCount[1]) : /^\d+$/.test(lines[start + 1] || '') ? Number(lines[start + 1]) : null;
   if (displayedCount === null && !explicitlyEmpty) {
     return result('loading', '页面数量或空状态尚未加载完整，请等待后重试');
   }
@@ -40,7 +46,6 @@
     return result('loading', '尚未确认官方空清单，保留原有记录');
   }
   const content = section;
-  const codePattern = /^(?:取件码\s*[:：]?\s*)?([A-Za-z0-9]{1,4}-[A-Za-z0-9]{1,4}-[A-Za-z0-9]{1,12})$/;
   const carrierPattern = /^(圆通(?:速递)?|韵达(?:快递)?|中通(?:快递)?|申通(?:快递)?|顺丰(?:速运)?|极兔(?:速递)?|邮政(?:快递)?|EMS|京东(?:物流)?|德邦(?:快递)?|菜鸟速递|百世(?:快递)?|天天(?:快递)?)\s+([A-Za-z0-9]{6,40})$/i;
   const entries = [];
   for (let i = 0; i < content.length; i++) {

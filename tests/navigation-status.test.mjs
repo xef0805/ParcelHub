@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ModalNavigation } from '../preview/modal-navigation.mjs';
-import { statusForSnapshot, SERVICE_MESSAGES } from '../preview/service-status.mjs';
+import { statusForSnapshot, SERVICE_MESSAGES, OfficialEmptyConfirmation } from '../preview/service-status.mjs';
 import { mergeOfficialSnapshot } from '../preview/model.mjs';
 
 test('设置三级页面逐级返回并恢复各自滚动位置，不越过根设置', () => {
@@ -32,4 +32,25 @@ test('登录失效、加载和错误提示不同，非完整快照均不能清�
   assert.equal(statusForSnapshot({ state: 'filtered_empty' }), SERVICE_MESSAGES.phoneFilter);
   assert.notEqual(statusForSnapshot({ state: 'loading' }), statusForSnapshot({ state: 'error' }));
   assert.equal(statusForSnapshot({ state: 'ready' }), null);
+});
+
+test('空清单确认不接受相同快照重放、过期读数、加载/登录打断或矛盾数据', () => {
+  const candidate = {state:'filtered_empty',parcels:[],expectedCount:null,readAt:'2026-10-31T04:00:00.000Z'};
+  const later = {...candidate,readAt:'2026-10-31T04:00:00.750Z'};
+  const confirmation = new OfficialEmptyConfirmation();
+  assert.equal(confirmation.accepting(candidate).state,'filtered_empty');
+  assert.equal(confirmation.accepting(candidate).state,'filtered_empty');
+  assert.equal(confirmation.accepting(later).state,'ready');
+  for (const interrupt of [{state:'loading'}, {state:'login_required'}, {state:'error'}, {state:'ready',parcels:[],expectedCount:0},
+    {...candidate,readAt:'invalid'}, {...candidate,parcels:[{id:'partial'}]}, {...candidate,expectedCount:1}]) {
+    confirmation.reset();
+    confirmation.accepting(candidate);
+    confirmation.accepting(interrupt);
+    assert.equal(confirmation.accepting(later).state,'filtered_empty');
+  }
+  confirmation.reset();
+  confirmation.accepting(candidate);
+  assert.equal(confirmation.accepting({...later,readAt:'2026-10-31T04:00:06.000Z'}).state,'filtered_empty');
+  confirmation.reset();
+  assert.equal(confirmation.accepting(later).state,'filtered_empty');
 });

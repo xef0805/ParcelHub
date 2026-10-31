@@ -145,6 +145,32 @@ struct OfficialPageRead: Codable, Equatable {
     var readAt: String
 }
 
+struct OfficialEmptyConfirmation {
+    private var previousEmptyAt: Date?
+
+    mutating func reset() { previousEmptyAt = nil }
+
+    /// 同一页面连续两次独立读取为空才更新；相同快照重放和加载失败不能算确认。
+    mutating func accepting(_ snapshot: OfficialPageRead) -> OfficialPageRead {
+        guard snapshot.state == "filtered_empty", snapshot.parcels.isEmpty,
+              snapshot.expectedCount == nil || snapshot.expectedCount == 0 else {
+            reset(); return snapshot
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let readAt = formatter.date(from: snapshot.readAt) else { reset(); return snapshot }
+        let previous = previousEmptyAt
+        previousEmptyAt = readAt
+        guard let previous, readAt > previous, readAt.timeIntervalSince(previous) <= 5 else { return snapshot }
+        reset()
+        var confirmed = snapshot
+        confirmed.state = "ready"
+        confirmed.expectedCount = 0
+        confirmed.message = "已确认淘宝当前待取页为空"
+        return confirmed
+    }
+}
+
 enum OfficialAuthenticationFlow {
     /// 与淘宝页面公开 lib-login 的 generateUrl 使用相同的官方入口和 redirectURL 参数。
     static func logoutURL(returningTo destination: URL) -> URL? {
@@ -162,15 +188,15 @@ enum AppServiceIssue: Error, LocalizedError, Equatable {
     case offline, timeout, login, wechatMissing, openFailed, expiredLink, unavailable, incomplete, phoneFilter
     var message: String {
         switch self {
-        case .offline: return "当前网络不可用，已保留本地包裹。请联网后重试。"
-        case .timeout: return "连接超时，已保留本地包裹。请稍后重试。"
-        case .login: return "淘宝登录已失效或尚未登录，已保留本地包裹。请重新登录后刷新。"
-        case .wechatMissing: return "未检测到可用的微信。请先安装或打开微信，再返回重试。"
-        case .openFailed: return "无法打开微信。请手动打开微信后重试；仍失败时请重新获取小程序链接。"
-        case .expiredLink: return "链接已失效或无法核对目标。请在对应小程序重新获取完整链接，原绑定已保留。"
-        case .unavailable: return "官方服务暂时不可用，已保留本地记录。请稍后重试。"
-        case .incomplete: return "本轮未能读取完整淘宝清单，已保留本地包裹。请打开官方待取页核对后重试；若网页也缺件，请先检查账号及收件手机号。"
-        case .phoneFilter: return "淘宝网页未返回该手机号的待取件，已保留本地记录。若淘宝 App 中有包裹，请核对网页登录账号，并从右上角菜单在浏览器打开进行比较。"
+        case .offline: return "网络未连接，记录已保留"
+        case .timeout: return "连接超时，记录已保留"
+        case .login: return "请重新登录淘宝，记录已保留"
+        case .wechatMissing: return "未检测到微信，请先安装或打开"
+        case .openFailed: return "微信未打开，请重试"
+        case .expiredLink: return "请重新获取链接，原绑定已保留"
+        case .unavailable: return "暂时无法连接，记录已保留"
+        case .incomplete: return "清单未读完整，记录已保留"
+        case .phoneFilter: return "正在确认空清单，记录暂时保留"
         }
     }
     var errorDescription: String? { message }

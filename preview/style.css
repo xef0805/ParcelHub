@@ -61,5 +61,8 @@ button:active,a:active,[role="button"]:active{transform:scale(.97);opacity:.72}
 
 .settings-link{text-decoration:none}
 
+/* 紧凑提示与更新时间，不占用独立卡片。 */
+.provider-note{display:flex;align-items:flex-start;gap:7px;color:var(--muted);font-size:12px;line-height:1.6;margin:0 4px 16px}.provider-note>span:first-child{color:var(--blue);flex-shrink:0}.parcel-update{display:flex;justify-content:flex-end;margin-top:8px}.update-stamp{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;color:var(--muted);font-size:11px;line-height:1.5;font-variant-numeric:tabular-nums}.update-stamp svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.4;flex-shrink:0}.sync-line{font-size:12px;line-height:1.6}.sync-line #sync-status{min-width:0;overflow-wrap:anywhere}.sync-line .text-button{min-height:40px}
+
 /* 0.7.3 设置页面逐级返回；隐藏尚未开放的入口。 */
 .settings-navigation-header{display:flex;gap:8px}.settings-navigation-header h2{flex:1;text-align:center;padding:0!important}.navigation-back{width:40px;height:40px;font-size:32px!important;line-height:1!important;background:none!important}.navigation-spacer{width:40px;flex-shrink:0}.home-import-actions{display:flex;justify-content:flex-end}.home-import-actions #add-parcel{min-width:145px;padding:12px 20px}.network-notice{border:1px solid #d48b3270;border-radius:12px;padding:12px 14px;color:#a35a13;background:#fff1d7;font-size:12px;line-height:1.7;margin-top:15px}.theme-dark .network-notice{background:#3b2b16;color:#ffd797}.sync-line{flex-wrap:wrap}.sync-line>span{flex:1;min-width:150px}#test-service-state{font-size:10px;max-width:112px;padding:4px}.preview-notice>span:last-child{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center}

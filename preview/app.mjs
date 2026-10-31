@@ -1,16 +1,18 @@
-import { STORAGE_KEY, addParcel, filterWatching, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot, credentialProviders, deleteCollected, pickupCredentials, groupCollected, reorderProvider, bindStationCredential, boundStationProvider } from './model.mjs';
+import { STORAGE_KEY, addParcel, filterWatching, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot, credentialProviders, deleteCollected, pickupCredentials, groupCollected, bindStationCredential, boundStationProvider } from './model.mjs';
 import { displayPreferences, localizeDOM } from './i18n.mjs';
 import { ModalNavigation } from './modal-navigation.mjs';
-import { SERVICE_MESSAGES, statusForSnapshot } from './service-status.mjs';
+import { SERVICE_MESSAGES, statusForSnapshot, OfficialEmptyConfirmation } from './service-status.mjs';
 const english = await (await fetch('/preview/locales/en.json')).json();
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const modal = $('#modal');
 const testing = new URLSearchParams(location.search).get('test') === '1';
 const key = testing ? 'tutu.preview.test.v1' : STORAGE_KEY;
-let catalog = [], assets = [], state, readSMS, parseIdentityLink, classifyImport, sorting = false, readonly = false, currentPage = 'packages', dragState;
+let catalog = [], assets = [], state, readSMS, parseIdentityLink, classifyImport, readonly = false, currentPage = 'packages';
 let toastTimer,clipboardCandidate,lastClipboardText='',testServiceState='normal';
+let refreshingSnapshot=false;
 const settingsNavigation=new ModalNavigation();let renderingSettings=false;
+const emptyConfirmation=new OfficialEmptyConfirmation();
 const providers = () => [...catalog, ...state.customProviders];
 const ordered = () => credentialProviders(state, catalog);
 const mark = id => {
@@ -41,10 +43,17 @@ function page(name) {
 }
 const copyIcon='<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M8 8h12v13H8zM16 8V3H3v13h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
 const trashIcon='<svg viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 10v7M14 10v7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function updateStamp(value){
+  const date=new Date(value);if(!Number.isFinite(date.getTime()))return '';
+  const today=new Date(),language=displayPreferences(state).language==='en'?'en-US':'zh-CN';
+  const sameDay=date.toDateString()===today.toDateString();
+  const options={hour:'2-digit',minute:'2-digit',hour12:false,...(sameDay?{}:{month:'numeric',day:'numeric',...(date.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})})};
+  return `<span class="update-stamp"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 5v5l3 2"/></svg><span>更新</span><time datetime="${esc(date.toISOString())}" title="${esc(date.toLocaleString(language))}" data-user-content>${esc(date.toLocaleString(language,options))}</time></span>`;
+}
 function card(p) {
   const provider=providers().find(x=>x.id===p.providerID);
   const alternatives=pickupCredentials(p).filter(c=>c.isCurrent&&c.pickupCode&&c.pickupCode!==p.pickupCode);
-  const article=`<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier)||p.providerID)}<div class="parcel-info"><h3 data-user-content>${esc(p.title)}</h3><p><span data-user-content>${esc(p.carrier||'快递')}</span> · <span>${p.smsOriginal?'含短信凭证':esc(provider?.name||'历史记录')}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}">${p.collectedAt?'恢复待取':'我已取件'}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong>${p.collectedAt?'':`<button data-copy="${esc(p.id)}">复制</button>`}</div>${p.trackingNumber?`<div class="tracking-line"><span>运单号</span> <span data-user-content>${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></div>`:''}${p.collectedAt&&p.smsOriginal?`<button class="sms-pass-button" data-sms="${esc(p.id)}">✉ 短信身份码</button>`:''}${alternatives.map(c=>`<p class="tracking-line">${esc(providers().find(x=>x.id===c.providerID)?.name||'其他来源')}取件码 · ${esc(c.pickupCode)}</p>`).join('')}</article>`;
+  const article=`<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier)||p.providerID)}<div class="parcel-info"><h3 data-user-content>${esc(p.title)}</h3><p><span data-user-content>${esc(p.carrier||'快递')}</span> · <span>${p.smsOriginal?'含短信凭证':esc(provider?.name||'历史记录')}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}">${p.collectedAt?'恢复待取':'我已取件'}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong>${p.collectedAt?'':`<button data-copy="${esc(p.id)}">复制</button>`}</div>${p.trackingNumber?`<div class="tracking-line"><span>运单号</span> <span data-user-content>${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></div>`:''}${p.collectedAt&&p.smsOriginal?`<button class="sms-pass-button" data-sms="${esc(p.id)}">✉ 短信身份码</button>`:''}${alternatives.map(c=>`<p class="tracking-line">${esc(providers().find(x=>x.id===c.providerID)?.name||'其他来源')}取件码 · ${esc(c.pickupCode)}</p>`).join('')}${p.lastReadAt?`<div class="parcel-update">${updateStamp(p.lastReadAt)}</div>`:''}</article>`;
   return p.collectedAt?`<div class="history-swipe" data-history-swipe="${esc(p.id)}"><button class="history-delete" data-delete-collected="${esc(p.id)}" aria-label="删除${esc(p.title)}" tabindex="-1">${trashIcon}</button>${article}</div>`:article;
 }
 function smsView(id){
@@ -57,7 +66,7 @@ function smsView(id){
 function smsEntry(station){
   const rows=filterParcels({...state,parcels:state.parcels.filter(p=>!p.isDemo)},providers()).filter(p=>p.smsOriginal&&(!station||p.station===station||pickupCredentials(p).some(c=>c.station===station)));
   if(rows.length===1){smsView(rows[0].id);return;}
-  open(`${heading('短信身份码')}<div class="binding-choices">${rows.length?rows.map(p=>`<button class="provider-tile" data-sms="${esc(p.id)}"><span class="detail"><strong data-user-content>${esc(p.title)}</strong><small>${esc(p.station)} · ${esc(p.pickupCode)}</small></span><span>›</span></button>`).join(''):'<p class="hint">暂无待取短信凭证。导入取件短信后会保存原文；历史短信可在已取记录查看。</p>'}</div>`);
+  open(`${heading('短信身份码')}<div class="binding-choices">${rows.length?rows.map(p=>`<button class="provider-tile" data-sms="${esc(p.id)}"><span class="detail"><strong data-user-content>${esc(p.title)}</strong><small>${esc(p.station)} · ${esc(p.pickupCode)}</small></span><span>›</span></button>`).join(''):'<p class="hint">暂无待取短信，历史短信可在已取记录查看。</p>'}</div>`);
 }
 function render() {
   const records = {...state, parcels:state.parcels.filter(p => !p.isDemo)};
@@ -77,10 +86,8 @@ function render() {
   $('#watching-count').textContent=watching.length;
   $('#watching-list').innerHTML=watching.map(p=>`<article class="parcel-card tracking-card"><div class="tracking-head"><div><h3 data-user-content>${esc(p.title)}</h3><div class="tracking-line"><span data-user-content>${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></div></div><span>待确认</span></div><div class="tracking-actions"><button class="text-button" data-complete-tracking="${esc(p.id)}">补充取件短信</button></div></article>`).join('');
   const all = ordered();
-  $('#provider-grid').classList.toggle('sorting', sorting);
-  $('#provider-grid').innerHTML = all.map(p=>`<div class="provider-tile" ${sorting?`data-drag="${esc(p.id)}"`:`role="button" tabindex="0" data-entry="${esc(p.id)}" aria-label="打开${esc(p.name)}"`}>
-    ${mark(p.id)}<div class="detail"><strong>${esc(p.name)}${p.id==='sms'?'':p.id==='fcbox'?'取件':'身份码'}</strong><small>${p.id==='sms'?'展示本机保存的取件短信':p.identityURL?'App 内官方网页':state.identityBindings?.[p.id]?.confirmed?'已绑定 · 直接打开小程序':'官方小程序 · 首次试开绑定'}</small></div>${sorting?`<button class="sort-handle" data-drag-handle="${esc(p.id)}" aria-label="拖动${esc(p.name)}排序"><svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>`:'<span>›</span>'}</div>`).join('');
-  $('#sort-providers').textContent=sorting?'完成':'排序';
+  $('#provider-grid').innerHTML = all.map(p=>`<div class="provider-tile" role="button" tabindex="0" data-entry="${esc(p.id)}" aria-label="打开${esc(p.name)}">
+    ${mark(p.id)}<div class="detail"><strong>${esc(p.name)}${p.id==='sms'?'':p.id==='fcbox'?'取件':'身份码'}</strong><small>${p.id==='sms'?'查看取件短信':p.identityURL?'官方身份码':state.identityBindings?.[p.id]?.confirmed?'已绑定 · 点击打开':'首次打开需绑定'}</small></div><span>›</span></div>`).join('');
 }
 function open(content) {
   if(!renderingSettings)settingsNavigation.clear();
@@ -133,7 +140,7 @@ function officialLogin() {
 const heading = title => `<div class="modal-head"><h2>${esc(title)}</h2><button class="close-modal" aria-label="关闭">✕</button></div>`;
 async function copy(text) { try { await navigator.clipboard.writeText(text); notify('已复制'); } catch { notify('请手动选中复制'); } }
 function bindingGuide() {
-  return `<section class="binding-guide"><h3>如何获取小程序链接</h3><p class="form-note">截图以兔喜生活为例，其他平台以实际菜单为准。</p><div class="guide-steps">${[['binding-menu.jpg','1','打开小程序右上角“…” → 添加到桌面'],['binding-safari-url.jpg','2','在 Safari 复制地址栏完整链接']].map(([file,step,label])=>`<button type="button" class="guide-step" data-guide-image="${file}"><span class="guide-step-title"><b>${step}</b><span>${label}</span></span><img src="/preview/assets/${file}" alt="${label}"><small>点击截图可放大</small></button>`).join('')}</div><p class="form-note">复制地址栏链接后返回粘贴，无需继续添加到主屏幕。</p></section>`;
+  return `<section class="binding-guide"><h3>如何获取小程序链接</h3><p class="form-note">以兔喜为例，其他平台菜单可能不同。</p><div class="guide-steps">${[['binding-menu.jpg','1','打开小程序右上角“…” → 添加到桌面'],['binding-safari-url.jpg','2','在 Safari 复制地址栏完整链接']].map(([file,step,label])=>`<button type="button" class="guide-step" data-guide-image="${file}"><span class="guide-step-title"><b>${step}</b><span>${label}</span></span><img src="/preview/assets/${file}" alt="${label}"><small>点击截图可放大</small></button>`).join('')}</div><p class="form-note">复制网址后返回粘贴，无需添加到主屏幕。</p></section>`;
 }
 function entry(id, manage=false) {
   if(id==='sms'){smsEntry();return;}
@@ -151,7 +158,7 @@ function entry(id, manage=false) {
     const issue=serviceMessage();if(issue){entry(id,true);showEntryFailure(issue);return;}
     if(!openExternal(binding.value)){entry(id,true);showEntryFailure(SERVICE_MESSAGES.openFailed);}return;
   }
-  open(`${heading(`${provider.name}小程序绑定`)}<p id="entry-status" class="error" role="alert" hidden></p><div class="entry-brand">${mark(id)}<strong>${esc(provider.name)}</strong></div><p class="hint">首次试开并确认后，下次点击直接尝试打开对应小程序。不同平台的身份码不能通用。</p>${binding?.confirmed?'':bindingGuide()}<div class="modal-form"><label class="field">小程序口令或官方跳转链接<textarea id="identity-link" spellcheck="false" placeholder="粘贴链接或 #小程序://…">${esc(binding?.value||provider.miniProgramURL||'')}</textarea></label><p class="form-note" id="link-note"></p><p class="error" id="link-error" role="alert" hidden></p><button class="button primary" id="try-link" hidden>试开${esc(provider.name)}</button><button class="button primary" id="confirm-link" hidden>确认已打开，保存绑定</button><button class="button secondary" id="save-share" hidden>保存口令（仍需在微信内打开）</button><button class="button secondary" id="copy-share" hidden>复制口令</button>${binding?'<button class="text-button" id="unbind-link">解除入口绑定</button>':''}</div><p class="form-note">仅粘贴入口链接，不要填写身份码或验证码。链接失效时请重新获取。</p>`);
+  open(`${heading(`${provider.name}小程序绑定`)}<p id="entry-status" class="error" role="alert" hidden></p><div class="entry-brand">${mark(id)}<strong>${esc(provider.name)}</strong></div><p class="hint">试开并绑定后，下次点击即可打开。各平台身份码不通用。</p>${binding?.confirmed?'':bindingGuide()}<div class="modal-form"><label class="field">小程序口令或官方跳转链接<textarea id="identity-link" spellcheck="false" placeholder="粘贴链接或 #小程序://…">${esc(binding?.value||provider.miniProgramURL||'')}</textarea></label><p class="form-note" id="link-note"></p><p class="error" id="link-error" role="alert" hidden></p><button class="button primary" id="try-link" hidden>试开${esc(provider.name)}</button><button class="button primary" id="confirm-link" hidden>确认已打开，保存绑定</button><button class="button secondary" id="save-share" hidden>保存口令（仍需在微信内打开）</button><button class="button secondary" id="copy-share" hidden>复制口令</button>${binding?'<button class="text-button" id="unbind-link">解除入口绑定</button>':''}</div><p class="form-note">只粘贴链接，勿填身份码或验证码。</p>`);
   let tried='';
   const input=$('#identity-link');
   const update=()=>{
@@ -165,7 +172,7 @@ function entry(id, manage=false) {
     const issue=serviceMessage();if(issue){showEntryFailure(issue);return;}
     if(!openExternal(result.value)){showEntryFailure(SERVICE_MESSAGES.openFailed);return;}
     tried=result.value;$('#confirm-link').hidden=false;$('#entry-status').hidden=true;
-    $('#link-note').textContent='已请求打开小程序。若未打开，请确认微信可用；若提示链接失效，请重新获取。打开正确后再确认绑定。';};
+    $('#link-note').textContent='请确认已打开正确小程序，再保存绑定。';};
   $('#confirm-link').onclick=()=>{if(!tried||tried!==input.value.trim())return;
     save({...state,identityBindings:{...state.identityBindings,[id]:{kind:'launchURL',value:tried,confirmed:true}}});finishModalAction();notify('已保存入口绑定');};
   $('#save-share').onclick=()=>{const result=parseIdentityLink(input.value,provider.miniProgramName);if(result.kind!=='shareCode')return;
@@ -190,7 +197,7 @@ function stationSettings() {
 
 }
 function parcelForm(initialSMS='', initialTrackingNumber='', initialCarrier='') {
-  open(`${heading('手动导入包裹')}<form id="parcel-form" class="modal-form import-form" novalidate><p id="form-error" class="error import-error" role="alert" hidden></p><div class="import-intro"><strong>粘贴短信，自动整理</strong><span>识别取件码 · 记住地点 · 合并重复包裹</span></div><label class="field">粘贴完整取件短信（可选）<textarea id="sms" placeholder="例如：【韵达快递】您的快件已入库，取件码01-02-0003，请及时领取。"></textarea></label><p class="form-note" id="recognition-note">自动识别物流与取件码；地点优先取短信内容，否则沿用同一物流公司的最近记录。短信原文和导入时间仅保存在本机。</p><label class="field" id="candidate-field" hidden>选择本次要添加的取件码<select id="candidate-code"></select></label><label class="field">包裹名称<input name="title" maxlength="60" required></label><label class="field">取件平台<select name="providerID">${providers().filter(p=>p.id!=='sms').map(p=>`<option value="${esc(p.id)}" ${p.id==='manual'?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label class="field">取件地点<input name="station" maxlength="100" required></label><label class="field">取件码<input name="pickupCode" maxlength="40" required autocapitalize="off"></label><div class="form-row"><label class="field">物流公司<input name="carrier" maxlength="30"></label><label class="field">完整快递单号<input name="trackingNumber" placeholder="建议补全，尾号不能去重" maxlength="80"></label></div><p class="form-note">完整单号用于跨平台去重；没有完整单号时，只能保守核对原文、地点和取件码。</p><button class="button primary" type="submit">确认添加</button></form>`);
+  open(`${heading('手动导入包裹')}<form id="parcel-form" class="modal-form import-form" novalidate><p id="form-error" class="error import-error" role="alert" hidden></p><div class="import-intro"><strong>粘贴短信，自动整理</strong><span>识别取件码 · 记住地点 · 合并重复包裹</span></div><label class="field">粘贴完整取件短信（可选）<textarea id="sms" placeholder="例如：【韵达快递】您的快件已入库，取件码01-02-0003，请及时领取。"></textarea></label><p class="form-note" id="recognition-note">粘贴完整短信，自动识别取件信息。地点可沿用上次记录。</p><label class="field" id="candidate-field" hidden>选择本次要添加的取件码<select id="candidate-code"></select></label><label class="field">包裹名称<input name="title" maxlength="60" required></label><label class="field">取件平台<select name="providerID">${providers().filter(p=>p.id!=='sms').map(p=>`<option value="${esc(p.id)}" ${p.id==='manual'?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label class="field">取件地点<input name="station" maxlength="100" required></label><label class="field">取件码<input name="pickupCode" maxlength="40" required autocapitalize="off"></label><div class="form-row"><label class="field">物流公司<input name="carrier" maxlength="30"></label><label class="field">完整快递单号<input name="trackingNumber" placeholder="建议补全，尾号不能去重" maxlength="80"></label></div><p class="form-note">完整单号用于去重，无单号时核对短信和取件信息。</p><button class="button primary" type="submit">确认添加</button></form>`);
   let smsSender='';
   const form=$('#parcel-form');
   form.elements.title.value=readSMS('',state.parcels).title;form.elements.trackingNumber.value=initialTrackingNumber;form.elements.carrier.value=initialCarrier;
@@ -212,7 +219,7 @@ function parcelForm(initialSMS='', initialTrackingNumber='', initialCarrier='') 
     try {
       const input=Object.fromEntries(new FormData(form)); input.source=$('#sms').value.trim()?'sms':'manual';input.smsOriginal=$('#sms').value;input.smsSender=smsSender;
       const next=addParcel(state,input,providers());save(input.smsOriginal&&input.providerID==='manual'&&!next.stationCredentials?.[input.station]?bindStationCredential(next,input.station,'sms',providers()):next); modal.close(); page('packages');
-      if(next.lastImportWasDuplicate){open(`${heading('包裹已存在')}<p class="hint">已合并到原包裹，没有重复添加。原有取件状态保持不变。</p><button class="button primary wide" id="duplicate-ok">知道了</button>`);$('#duplicate-ok').onclick=()=>modal.close();}
+      if(next.lastImportWasDuplicate){open(`${heading('包裹已存在')}<p class="hint">已合并到原包裹，取件状态不变。</p><button class="button primary wide" id="duplicate-ok">知道了</button>`);$('#duplicate-ok').onclick=()=>modal.close();}
       else notify('包裹已加入待取清单');
     } catch(error) { $('#form-error').hidden=false; $('#form-error').textContent=error.message;
       const missing=['title','station','pickupCode'].find(name=>!form.elements[name].value.trim());
@@ -221,14 +228,14 @@ function parcelForm(initialSMS='', initialTrackingNumber='', initialCarrier='') 
   });
   if(initialSMS){$('#sms').value=initialSMS;$('#sms').dispatchEvent(new Event('input',{bubbles:true}));}
 }
-function duplicateNotice(message='已合并到原包裹，没有重复添加。原有取件状态保持不变。'){
+function duplicateNotice(message='已合并到原包裹，取件状态不变。'){
   open(`${heading('包裹已存在')}<p class="hint">${esc(message)}</p><button class="button primary wide" id="duplicate-ok">知道了</button>`);$('#duplicate-ok').onclick=()=>modal.close();
 }
 function presentClipboardPrompt() {
   const prompt=$('#clipboard-modal');
   if(!clipboardCandidate||modal.open||$('#guide-modal').open)return;
   $('#clipboard-description').textContent='剪贴板中有取件短信';
-  $('#clipboard-note').textContent='确认后进入导入页核对，不会自动保存。';
+  $('#clipboard-note').textContent='核对信息后再保存';
   $('#clipboard-import').textContent='去导入';
   if(!prompt.open)prompt.showModal();
 }
@@ -246,7 +253,7 @@ async function checkClipboard(manual=false) {
 }
 
 function monitoring(){
-  open(`${heading('到站监控')}<div class="monitor-card"><strong>淘宝 · 前台自动检查</strong><p>登录后打开或返回 App 时检查，前台每两分钟检查。新件要先出现在官方清单中。</p></div>${['tuxi','yishoufa','fcbox'].map(id=>`<div class="monitor-card"><strong>${esc(providers().find(p=>p.id===id)?.name)}</strong><p>已核实小程序首页入口；包裹清单尚未接通，不能自动监控到站。</p></div>`).join('')}<p class="hint">短信仅手动粘贴；不读取短信收件箱、不使用快捷指令。本版不承诺锁屏或退出后持续监控。</p>`);
+  open(`${heading('到站监控')}<div class="monitor-card"><strong>淘宝 · 前台自动检查</strong><p>前台每两分钟检查，以官方清单为准。</p></div>${['tuxi','yishoufa','fcbox'].map(id=>`<div class="monitor-card"><strong>${esc(providers().find(p=>p.id===id)?.name)}</strong><p>可打开小程序，暂不支持同步包裹。</p></div>`).join('')}<p class="hint">仅导入粘贴的短信，锁屏或退出后暂停检查。</p>`);
 }
 const settingsIcons={appearance:'M12 3a9 9 0 1 0 0 18V3zm0 0a9 9 0 0 1 0 18',language:'M3 12h18M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 0c-4 5-4 13 0 18 4-5 4-13 0-18',notification:'M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zm5 3h4',sync:'M4 9a8 8 0 0 1 14-3l2 3m0-5v5h-5M20 15a8 8 0 0 1-14 3l-2-3m0 5v-5h5',clipboard:'M9 4H5v17h14V4h-4M9 3h6v4H9zM8 12h8M8 16h6',pass:'M4 5h16v14H4zM8 9h2v6H8M14 9v6M17 9v6',link:'M10 14l4-4M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0',data:'M4 4h16v13H9l-5 4V4zm4 5h8M8 13h6'};
 function settingsIcon(name) {return `<span class="settings-icon icon-${name}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${settingsIcons[name]||settingsIcons.pass}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;}
@@ -254,7 +261,7 @@ function settingsLink(id,title,icon,detail='') {return `<button class="settings-
 function settingsToggle(id,title,icon,enabled) {return `<label class="settings-switch-row">${settingsIcon(icon)}<span class="settings-row-title">${title}</span><span class="ios-switch"><input id="${id}" type="checkbox" role="switch" aria-label="${title}" ${enabled?'checked':''}><span class="switch-track"></span></span></label>`;}
 function settings() {
   const preferences=displayPreferences(state),appearance={system:'跟随系统',light:'浅色',dark:'深色'}[preferences.appearance];
-  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.4</p>`);
+  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.5</p>`);
   modal.classList.add('settings-dialog');
   $('#auto-sync').onchange=event=>save({...state,autoSyncEnabled:event.target.checked});
   $('#clipboard-detection').onchange=event=>{save({...state,clipboardDetectionEnabled:event.target.checked});if(!event.target.checked){clipboardCandidate=null;$('#clipboard-modal').close();}else{lastClipboardText='';checkClipboard();}};
@@ -267,29 +274,40 @@ function settingsSubpage(title,content) {
 }
 function appearanceSettings() {
   const selected=displayPreferences(state).appearance;
-  settingsSubpage('界面与显示',`<div class="settings-group">${[['system','跟随系统'],['light','浅色'],['dark','深色']].map(([value,label])=>`<label class="choice-row"><input type="radio" name="appearance" value="${value}" ${selected===value?'checked':''}><span>${label}</span></label>`).join('')}</div><p class="hint">应用界面与短信凭证会随外观切换。官方身份码网页由平台控制，保留便于扫码的显示方式。</p>`);
+  settingsSubpage('界面与显示',`<div class="settings-group">${[['system','跟随系统'],['light','浅色'],['dark','深色']].map(([value,label])=>`<label class="choice-row"><input type="radio" name="appearance" value="${value}" ${selected===value?'checked':''}><span>${label}</span></label>`).join('')}</div><p class="hint">外观影响应用和短信页，官方网页保持原样。</p>`);
   document.querySelectorAll('[name="appearance"]').forEach(input=>input.onchange=()=>save({...state,appearance:input.value}));
 }
 function languageSettings() {
   const selected=displayPreferences(state).language;
-  settingsSubpage('语言',`<div class="settings-group">${[['zh-Hans','简体中文'],['en','English']].map(([value,label])=>`<label class="choice-row"><input type="radio" name="language" value="${value}" ${selected===value?'checked':''}><span data-user-content>${label}</span></label>`).join('')}</div><p class="hint">语言设置只改变应用界面，包裹名称、地点、短信原文及官方页面保持原样。</p>`);
+  settingsSubpage('语言',`<div class="settings-group">${[['zh-Hans','简体中文'],['en','English']].map(([value,label])=>`<label class="choice-row"><input type="radio" name="language" value="${value}" ${selected===value?'checked':''}><span data-user-content>${label}</span></label>`).join('')}</div><p class="hint">仅切换界面语言，不修改包裹和短信。</p>`);
   document.querySelectorAll('[name="language"]').forEach(input=>input.onchange=()=>save({...state,language:input.value}));
 }
 async function refresh() {
   updateNetworkNotice();
   const loginRequired=testing&&testServiceState==='login';
   $('#login-retry').hidden=!loginRequired;
-  if(isOffline()){$('#sync-status').textContent=SERVICE_MESSAGES.offline;return;}
-  if(loginRequired){$('#sync-status').textContent=SERVICE_MESSAGES.login;return;}
+  if(isOffline()){emptyConfirmation.reset();$('#sync-status').textContent=SERVICE_MESSAGES.offline;return;}
+  if(loginRequired){emptyConfirmation.reset();$('#sync-status').textContent=SERVICE_MESSAGES.login;return;}
   if(testing){$('#sync-status').textContent='测试模式 · 不访问真实包裹快照';return;}
+  if(refreshingSnapshot)return;
+  refreshingSnapshot=true;
   try {
     const response=await fetch('/api/official-snapshot',{cache:'no-store'});
     if(!response.ok)throw new Error('snapshot-unavailable');
-    const snapshot=await response.json(),issue=statusForSnapshot(snapshot);
+    let snapshot=emptyConfirmation.accepting(await response.json());
+    if(snapshot.state==='filtered_empty'){
+      await new Promise(resolve=>setTimeout(resolve,750));
+      const repeated=await fetch('/api/official-snapshot',{cache:'no-store'});
+      if(!repeated.ok)throw new Error('snapshot-unavailable');
+      snapshot=emptyConfirmation.accepting(await repeated.json());
+    }
+    if(isOffline()){emptyConfirmation.reset();$('#sync-status').textContent=SERVICE_MESSAGES.offline;return;}
+    const issue=statusForSnapshot(snapshot);
     if(issue){$('#sync-status').textContent=issue;$('#login-retry').hidden=snapshot.state!=='login_required';return;}
     if(snapshot.readAt!==state.lastOfficialReadAt)save(mergeOfficialSnapshot(state,snapshot));
-    $('#sync-status').textContent=`本机快照 ${new Date(snapshot.readAt).toLocaleString('zh-CN')} · 非网页实时同步`;
-  } catch {$('#sync-status').textContent=isOffline()?SERVICE_MESSAGES.offline:'尚未取得可用的官方清单，已保留本地包裹。请登录后刷新。';}
+    $('#sync-status').innerHTML=updateStamp(snapshot.readAt);
+  } catch {emptyConfirmation.reset();$('#sync-status').textContent=isOffline()?SERVICE_MESSAGES.offline:'暂未读到清单，记录已保留';}
+  finally {refreshingSnapshot=false;}
 }
 window.addEventListener('offline',refresh);window.addEventListener('online',refresh);
 $('#login-retry').onclick=officialLogin;
@@ -310,49 +328,12 @@ document.addEventListener('click',event=>{
   if(control.classList.contains('close-modal'))modal.close();
 });
 document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.dataset.entry)entry(event.target.dataset.entry);});
-const providerGrid=$('#provider-grid');
 let swipe, suppressEntryUntil=0;
-function finishDrag(commit=false){
-  if(!dragState)return;
-  const {id,targetID,frame}=dragState;cancelAnimationFrame(frame);
-  document.querySelectorAll('.dragging,.drop-target').forEach(row=>{row.classList.remove('dragging','drop-target');row.style.transform='';});
-  dragState=null;
-  if(commit){const destination=ordered().findIndex(p=>p.id===targetID);if(destination>=0)save(reorderProvider(state,ordered(),id,destination));}
-}
-providerGrid.addEventListener('pointerdown',event=>{
-  const handle=event.target.closest('[data-drag-handle]');if(!handle||!sorting)return;
-  event.preventDefault();handle.setPointerCapture(event.pointerId);
-  const row=handle.closest('[data-drag]');
-  dragState={id:handle.dataset.dragHandle,targetID:handle.dataset.dragHandle,startY:event.clientY,startScroll:window.scrollY,x:event.clientX,y:event.clientY,row,frame:0};
-  row.classList.add('dragging');
-  const tick=()=>{
-    if(!dragState)return;const d=dragState;
-    if(d.y<85)window.scrollBy(0,-12);else if(d.y>innerHeight-100)window.scrollBy(0,12);
-    d.row.style.transform=`translateY(${d.y-d.startY+window.scrollY-d.startScroll}px)`;
-    const target=document.elementFromPoint(d.x,d.y)?.closest('[data-drag]');
-    if(target&&target.dataset.drag!==d.id){
-      d.targetID=target.dataset.drag;
-      document.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));target.classList.add('drop-target');
-    }
-    d.frame=requestAnimationFrame(tick);
-  };dragState.frame=requestAnimationFrame(tick);
-});
-providerGrid.addEventListener('pointermove',event=>{if(dragState){dragState.x=event.clientX;dragState.y=event.clientY;}});
-providerGrid.addEventListener('pointerup',()=>finishDrag(true));
-providerGrid.addEventListener('pointercancel',()=>finishDrag(false));
-providerGrid.addEventListener('lostpointercapture',()=>finishDrag(false));
-providerGrid.addEventListener('keydown',event=>{
-  const handle=event.target.closest('[data-drag-handle]');
-  if(!handle||!['ArrowUp','ArrowDown'].includes(event.key))return;
-  event.preventDefault();const id=handle.dataset.dragHandle;const index=ordered().findIndex(p=>p.id===id);
-  save(reorderProvider(state,ordered(),id,index+(event.key==='ArrowUp'?-1:1)));
-  document.querySelector(`[data-drag-handle="${CSS.escape(id)}"]`)?.focus();
-});
 $('#add-parcel').onclick=()=>parcelForm();
 $('#clipboard-import').onclick=()=>{if(!clipboardCandidate)return;const candidate=clipboardCandidate;clipboardCandidate=null;$('#clipboard-modal').close();page('packages');if(candidate.kind==='sms')parcelForm(candidate.text);};
 $('#clipboard-dismiss').onclick=()=>{clipboardCandidate=null;$('#clipboard-modal').close();};
 $('#close-guide').onclick=()=>$('#guide-modal').close();
-$('#sort-providers').onclick=()=>{finishDrag(false);sorting=!sorting;render();};$('#search').oninput=render;$('#history-search').oninput=render;
+$('#search').oninput=render;$('#history-search').oninput=render;
 $('#show-collected').onclick=()=>{$('#history-panel').hidden=!$('#history-panel').hidden;};$('#show-settings').onclick=startSettings;
 $('#refresh-snapshot').onclick=refresh;
 $('.brand').onclick=event=>{event.preventDefault();page('packages');};

@@ -15,10 +15,10 @@ struct AppMessage: View {
         let exact = bundle.localizedString(forKey: text, value: text, table: nil)
         if exact != text { return exact }
         let patterns = [
-            ("^已同步淘宝 · 新增 ([0-9]+) 件到站包裹$", "Taobao synced · $1 new pickups"),
-            ("^已同步 ([0-9]+) 件待取包裹，可返回清单查看$", "$1 pickups synced. Return to the list to view them"),
-            ("^官方暂无待取件，已从待取清单移除该来源的 ([0-9]+) 条旧记录$", "No official pickups. Removed $1 old entries from this source"),
-            ("^已沿用上次(.+)的取件地点，请确认本次仍在此处$", "Using the last pickup location for $1. Check it is still correct"),
+            ("^已同步 · 新增 ([0-9]+) 件$", "Synced · $1 new pickups"),
+            ("^已同步 ([0-9]+) 件待取包裹$", "$1 pickups synced"),
+            ("^待取已清空 · 移出 ([0-9]+) 件$", "No pickups · $1 entries removed"),
+            ("^沿用(.+)上次地点，请核对$", "Using the last $1 location. Please check"),
             ("^返回后确认：刚才是否进入了(.+)？$", "After returning, confirm: did $1 open?")
         ]
         for (pattern, replacement) in patterns {
@@ -63,7 +63,7 @@ struct ContentView: View {
             }
             Button("暂不处理", role: .cancel) { clipboard.dismissCandidate() }
         } message: {
-            Text("剪贴板中有取件短信。确认后进入导入页核对，不会自动保存。")
+            Text("发现取件短信，要去导入吗？")
         }
         .alert("本地数据提示", isPresented: Binding(get: { store.storageWarning != nil }, set: { _ in })) {
             Button("知道了", role: .cancel) { }
@@ -91,6 +91,20 @@ struct BrandMark: View {
         }.frame(width: size, height: size)
             .background(Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 13)).accessibilityLabel(label)
+    }
+}
+
+struct UpdateStamp: View {
+    let date: Date
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "clock")
+            Text("更新")
+            if !Calendar.current.isDateInToday(date) { Text(date, format: .dateTime.month().day()) }
+            Text(date, format: .dateTime.hour().minute())
+        }.font(.caption2).foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(Text(date, format: .dateTime.year().month().day().hour().minute()))
     }
 }
 
@@ -196,11 +210,12 @@ struct PackagesView: View {
                         HStack(spacing: 8) {
                             if sync.isRefreshing { ProgressView().controlSize(.small) }
                             else { Image(systemName: sync.needsLogin ? "person.crop.circle.badge.exclamationmark" : "arrow.triangle.2.circlepath") }
-                            AppMessage(sync.status)
+                            AppMessage(sync.status).lineLimit(2)
+                            Spacer(minLength: 0)
+                            if sync.needsLogin { Button("重新登录淘宝") { showingOfficialLogin = true }.font(.caption.weight(.semibold)) }
                         }
-                        if sync.needsLogin { Button("重新登录淘宝") { showingOfficialLogin = true }.font(.caption.weight(.semibold)) }
                         if let updated = store.lastOfficialReadAt {
-                            Text("上次同步 \(updated.formatted(date: .abbreviated, time: .shortened)) · 可下拉刷新")
+                            HStack { UpdateStamp(date: updated); Spacer(); Text("下拉刷新").font(.caption2) }
                         }
                     }.font(.caption).foregroundStyle(.secondary)
                     Text("待取清单").font(.title2.bold())
@@ -331,8 +346,7 @@ struct ParcelCard: View {
                 Button { showingSMS = true } label: { Label("短信身份码", systemImage: "message").font(.caption.weight(.medium)) }
             }
             if let date = parcel.lastReadAt {
-                Text("官方清单更新于 \(date.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption2).foregroundStyle(.secondary)
+                HStack { Spacer(minLength: 0); UpdateStamp(date: date) }.padding(.top, 2)
             }
         }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
             .contentShape(Rectangle()).buttonStyle(PressFeedbackStyle())
@@ -353,21 +367,21 @@ struct CredentialPickerView: View {
     @Environment(\.openURL) private var openURL
     @State private var selected: PickupProvider?
     @State private var launchError: String?
-    @State private var sorting = false
     @State private var launching = false
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     Group {
-                        if let station { Text("为「\(station)」选择身份码，下次可直接打开。") }
-                        else { Text("四个官方入口分别绑定；短信件可直接展示保存的通知原文。") }
-                    }.font(.subheadline).foregroundStyle(.secondary)
+                        if let station { Text("为「\(station)」选择身份码") }
+                        else { Label("按驿站要求选码，短信件用短信码", systemImage: "info.circle") }
+                    }.font(.caption).foregroundStyle(.secondary)
+                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
                 }
                 Section {
                     ForEach(store.credentialProviders) { provider in
                         Button {
-                            guard !sorting else { return }
                             if let station { store.rememberCredential(provider.id, for: station) }
                             store.preferCredential(provider.id)
                             if let onChoose { onChoose(provider) }
@@ -384,30 +398,23 @@ struct CredentialPickerView: View {
                                 ProviderMark(provider: provider, size: 62)
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(LocalizedStringKey(provider.id == "sms" ? provider.name : provider.id == "fcbox" ? "丰巢取件" : "\(provider.name)身份码")).font(.headline).foregroundStyle(.primary)
-                                    Text(LocalizedStringKey(provider.id == "sms" ? "查看本机保存的取件短信" : provider.identityURL != nil ? "App 内打开官方身份码" : store.identityBindings[provider.id]?.confirmed == true ? "已绑定 · 直接打开小程序" : provider.miniProgramURL != nil ? "首次试开并绑定小程序" : "入口待绑定"))
+                                    Text(LocalizedStringKey(provider.id == "sms" ? "查看取件短信" : provider.identityURL != nil ? "官方身份码" : store.identityBindings[provider.id]?.confirmed == true ? "已绑定 · 点击打开" : provider.miniProgramURL != nil ? "首次打开需绑定" : "入口待绑定"))
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if let station, store.stationCredentials[station] == provider.id { Image(systemName: "checkmark.circle.fill") }
-                                else if !sorting { Image(systemName: "chevron.right").font(.caption) }
+                                else { Image(systemName: "chevron.right").font(.caption) }
                             }.padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(PressFeedbackStyle()).disabled(launching)
                             .contextMenu {
                                 if !["taobao", "sms"].contains(provider.id) { Button("管理小程序绑定") { launchError = nil; selected = provider } }
                             }
-                    }.onMove { offsets, destination in store.moveProviders(from: offsets, to: destination) }
-                        .deleteDisabled(true)
-                        .moveDisabled(!sorting)
+                    }
                 }
-                Section {
-                    HStack {
-                        Spacer()
-                        Button(LocalizedStringKey(sorting ? "完成" : "排序")) { withAnimation { sorting.toggle() } }
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }.buttonStyle(PressFeedbackStyle())
-                    if launching { ProgressView("正在打开小程序…").font(.caption) }
+                if launching {
+                    Section { ProgressView("正在打开小程序…").font(.caption) }
                 }
-            }.environment(\.editMode, .constant(sorting ? .active : .inactive))
+            }.listStyle(.insetGrouped).listSectionSpacing(16)
                 .navigationTitle("身份码").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if showsDone { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
@@ -453,7 +460,7 @@ struct PickupEntryView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        Text("粘贴官方小程序的桌面链接，试开后确认。以后点击此平台或已绑定的取件地点，会直接尝试打开对应小程序。")
+                        Text("粘贴小程序链接，试开后保存绑定。")
                             .font(.subheadline).foregroundStyle(.secondary)
                         if store.identityBindings[provider.id]?.confirmed != true || error != nil { BindingGuideView() }
                         if provider.miniProgramURL != nil {
@@ -499,12 +506,12 @@ struct PickupEntryView: View {
                             Button("保存口令（仍需在微信内打开）") {
                                 guard let value = parsed?.value else { return }
                                 store.saveIdentityBinding(IdentityBinding(kind: "shareCode", value: value, confirmed: false), for: provider.id)
-                                note = "已保存口令；这不表示可以直接唤起小程序。"
+                                note = "口令已保存，需在微信内打开"
                             }.buttonStyle(.bordered)
                             Button("复制口令并打开微信") {
                                 UIPasteboard.general.string = parsed?.value
                                 if let url = URL(string: "weixin://") { openURL(url) { accepted in
-                                    note = accepted ? "请在微信聊天输入框粘贴并发送口令，再点击进入。" : "未打开微信，请从桌面打开并粘贴口令。"
+                                    note = accepted ? "在微信粘贴并发送口令，再点击打开" : "请打开微信并粘贴口令"
                                 } }
                             }.buttonStyle(.bordered)
                         } else if !link.isEmpty { Text(parsed?.error ?? "无法识别链接").font(.caption).foregroundStyle(.orange) }
@@ -517,9 +524,9 @@ struct PickupEntryView: View {
                                 store.saveIdentityBinding(nil, for: provider.id); testedValue = nil; note = "已解除入口绑定"
                             }.font(.subheadline)
                         }
-                        Text("仅粘贴入口链接，不要填写身份码或验证码。链接失效时请重新获取。")
+                        Text("只粘贴链接，勿填身份码或验证码。")
                             .font(.caption).foregroundStyle(.secondary)
-                        if provider.id == "fcbox" { Text("丰巢支持通知取件码和官方 App 开柜；这里绑定的是小程序入口。").font(.caption).foregroundStyle(.secondary) }
+                        if provider.id == "fcbox" { Text("此处绑定丰巢小程序入口。").font(.caption).foregroundStyle(.secondary) }
                         if provider.id == "fcbox",
                            let link = provider.appStoreURL, let url = URL(string: link) {
                             Link("官方 App（App Store）", destination: url).font(.subheadline)
@@ -659,7 +666,7 @@ struct SettingsView: View {
             Section {
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
             } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.4 · 本地开发版").foregroundStyle(.secondary) }
+            Section("关于涂涂取件") { Text("版本 0.7.5 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }
@@ -682,12 +689,12 @@ struct BindingGuideView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("如何获取小程序链接").font(.headline)
-            Text("截图以兔喜生活为例，其他平台以实际菜单为准。").font(.caption).foregroundStyle(.secondary)
+            Text("以兔喜为例，其他平台菜单可能不同。").font(.caption).foregroundStyle(.secondary)
             HStack(alignment: .top, spacing: 12) {
                 step("BindingGuideMenu", number: "1", title: "打开小程序右上角“…” → 添加到桌面")
                 step("BindingGuideSafari", number: "2", title: "在 Safari 复制地址栏完整链接")
             }
-            Text("复制地址栏链接后返回粘贴，无需继续添加到主屏幕。").font(.caption).foregroundStyle(.secondary)
+            Text("复制网址后返回粘贴，无需添加到主屏幕。").font(.caption).foregroundStyle(.secondary)
         }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
             .sheet(item: $selectedImage) { selected in
                 NavigationStack {
@@ -722,7 +729,7 @@ struct AppearanceSettingsView: View {
                     Text("深色").tag("dark")
                 }.pickerStyle(.inline).labelsHidden()
             }
-            Section { Text("应用界面与短信凭证会随外观切换。官方身份码网页由平台控制，保留便于扫码的显示方式。")
+            Section { Text("外观影响应用和短信页，官方网页保持原样。")
                     .font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("界面与显示").navigationBarTitleDisplayMode(.inline)
     }
@@ -738,7 +745,7 @@ struct LanguageSettingsView: View {
                     Text(verbatim: "English").tag("en")
                 }.pickerStyle(.inline).labelsHidden()
             }
-            Section { Text("语言设置只改变应用界面，包裹名称、地点、短信原文及官方页面保持原样。")
+            Section { Text("仅切换界面语言，不修改包裹和短信。")
                     .font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("语言").navigationBarTitleDisplayMode(.inline)
     }
@@ -782,6 +789,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
     private var pendingPage = false
     private var generation = 0
     private var readAttempt = 0
+    private var emptyConfirmation = OfficialEmptyConfirmation()
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -807,11 +815,13 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
     }
 
     func fail(_ issue: AppServiceIssue) {
+        emptyConfirmation.reset()
         failure = issue; status = issue.message; isLoading = false; hasError = true
     }
 
     func stop() {
         generation += 1
+        emptyConfirmation.reset()
         authenticationDestination = nil
         webView.stopLoading()
         readResult = nil
@@ -820,6 +830,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
 
     func load(_ url: URL) {
         generation += 1
+        emptyConfirmation.reset()
         authenticationDestination = nil
         pendingPage = url == Self.parcels
         readAttempt = 0
@@ -840,6 +851,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         generation += 1
+        emptyConfirmation.reset()
         readAttempt = 0
         readResult = nil
         failure = nil
@@ -852,7 +864,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         isLoading = false
         if let destination = authenticationDestination {
             guard webView.url?.host == destination.host, webView.url?.path == destination.path else {
-                status = "请在此页重新登录淘宝，完成后将返回取件页面。"
+                status = "请在此页登录，完成后自动返回"
                 return
             }
             authenticationDestination = nil
@@ -885,13 +897,24 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         let requestGeneration = generation
         readAttempt += 1
         let attempt = readAttempt
-        status = "正在读取最新待取清单…"
+        status = "正在读取…"
         let script = "JSON.stringify((\(reader))(document.body ? document.body.innerText : ''))"
         webView.evaluateJavaScript(script) { [weak self] value, error in
             guard let self, self.generation == requestGeneration else { return }
             guard error == nil, let json = value as? String, let data = json.data(using: .utf8),
-                  let result = try? JSONDecoder().decode(OfficialPageRead.self, from: data) else {
-                self.hasError = true; self.status = "未能读取官方页面，原有包裹保持不变"; return
+                  let snapshot = try? JSONDecoder().decode(OfficialPageRead.self, from: data) else {
+                self.emptyConfirmation.reset()
+                self.hasError = true; self.status = "读取失败，记录已保留"; return
+            }
+            let result = self.emptyConfirmation.accepting(snapshot)
+            if result.state == "filtered_empty" {
+                guard attempt < 14 else { self.fail(.incomplete); return }
+                self.status = "正在确认空清单…"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+                    guard let self, self.generation == requestGeneration else { return }
+                    self.readPending()
+                }
+                return
             }
             // 页面应用异步加载，首次得到的占位零件不得清空已有记录。
             if result.state == "loading" {
@@ -932,7 +955,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
             .contains { host == $0 || host.hasSuffix("." + $0) }
         if url.scheme == "https" && official { decisionHandler(.allow) }
         else {
-            status = "此步骤需要外部应用，请从右上角菜单打开官方页面继续"
+            status = "请从右上角菜单打开官方页面"
             hasError = true
             decisionHandler(.cancel)
         }
@@ -1013,13 +1036,13 @@ struct OfficialPickupView: View {
                 }
             }
             .confirmationDialog("重新登录淘宝？", isPresented: $confirmingAuthentication, titleVisibility: .visible) {
-                Button("退出当前网页登录并重新登录", role: .destructive) {
+                Button("退出并重新登录", role: .destructive) {
                     sync.beginAuthentication()
                     session.reauthenticate(returningTo: pageURL)
                 }
                 Button("取消", role: .cancel) { }
             } message: {
-                Text("将通过淘宝官方页面退出当前网页登录，再在涂涂取件内重新登录。包裹与短信记录会保留。")
+                Text("退出当前网页登录后重登，包裹和短信会保留。")
             }
             .onAppear { session.load(pageURL) }
             .onDisappear {
@@ -1034,9 +1057,9 @@ struct OfficialPickupView: View {
                 if let error = store.importOfficial(result) {
                     session.status = error; session.hasError = true
                 } else if result.parcels.isEmpty {
-                    session.status = "官方暂无待取件，已从待取清单移除该来源的 \(previousCount) 条旧记录"
+                    session.status = "待取已清空 · 移出 \(previousCount) 件"
                 } else {
-                    session.status = "已同步 \(result.parcels.count) 件待取包裹，可返回清单查看"
+                    session.status = "已同步 \(result.parcels.count) 件待取包裹"
                 }
             }
         }

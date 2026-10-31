@@ -22,7 +22,7 @@ final class NetworkStatus: ObservableObject {
 final class OfficialSyncController: ObservableObject {
     let session = OfficialPickupSession()
     @Published private(set) var isRefreshing = false
-    @Published private(set) var status = "正在等待刷新"
+    @Published private(set) var status = "等待同步"
     @Published private(set) var needsLogin = false
     @Published private(set) var isAuthenticating = false
     private let store: ParcelStore
@@ -43,7 +43,7 @@ final class OfficialSyncController: ObservableObject {
             } else if self.active && self.store.autoSyncEnabled && !self.needsLogin {
                 self.refresh(force: true)
             } else if self.needsLogin { self.status = AppServiceIssue.login.message }
-            else if !self.store.autoSyncEnabled { self.status = "自动刷新已关闭，可下拉刷新" }
+            else if !self.store.autoSyncEnabled { self.status = "自动刷新已关闭" }
         }.store(in: &subscriptions)
         session.$readResult.sink { [weak self] result in
             guard let self, self.active, let result else { return }
@@ -53,7 +53,7 @@ final class OfficialSyncController: ObservableObject {
                 if let error = self.store.importOfficial(result) { self.status = error }
                 else {
                     let added = self.store.pending.filter { !previousIDs.contains($0.id) }.count
-                    self.status = added > 0 ? "已同步淘宝 · 新增 \(added) 件到站包裹" : "已同步淘宝待取清单"
+                    self.status = added > 0 ? "已同步 · 新增 \(added) 件" : "已同步淘宝"
                     self.needsLogin = false
                 }
             } else {
@@ -79,7 +79,7 @@ final class OfficialSyncController: ObservableObject {
             session.stop(); finish(); return
         }
         guard !isAuthenticating else { return }
-        guard store.autoSyncEnabled else { session.stop(); finish(); status = "自动刷新已关闭，可下拉刷新"; return }
+        guard store.autoSyncEnabled else { session.stop(); finish(); status = "自动刷新已关闭"; return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -94,7 +94,7 @@ final class OfficialSyncController: ObservableObject {
         lastAttempt = Date()
         needsLogin = false
         isRefreshing = true
-        status = "正在自动检查待取包裹…"
+        status = "正在同步…"
         session.load(OfficialPickupSession.parcels)
         watchdog?.cancel()
         watchdog = Task { [weak self] in
@@ -118,7 +118,7 @@ final class OfficialSyncController: ObservableObject {
         timer?.invalidate(); timer = nil
         session.stop(); session.load(URL(string: "about:blank")!); finish()
         needsLogin = true
-        status = "请在此页重新登录淘宝，完成后将返回取件页面。"
+        status = "请在此页登录，完成后自动返回"
     }
 
     func endAuthentication() {

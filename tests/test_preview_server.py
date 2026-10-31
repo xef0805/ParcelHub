@@ -48,11 +48,24 @@ class PreviewSnapshotStatusTests(unittest.TestCase):
             self.assertEqual(json.load(response), snapshot)
 
     def test_incomplete_states_return_status_without_partial_parcels(self):
-        for state in ('login_required', 'loading', 'error', 'filtered_empty'):
+        for state in ('login_required', 'loading', 'error'):
             with self.subTest(state=state):
                 self.write_snapshot({'state': state, 'message': '测试状态', 'parcels': [{'title': '不得当成完整清单'}]})
                 with urlopen(self.url, timeout=3) as response:
                     self.assertEqual(json.load(response), {'state': state, 'message': '测试状态'})
+
+    def test_empty_candidate_retains_read_timestamp_for_independent_confirmation(self):
+        snapshot = {'state': 'filtered_empty', 'message': '待确认空清单', 'parcels': [], 'expectedCount': None, 'readAt': '2026-10-31T04:00:00.000Z'}
+        self.write_snapshot(snapshot)
+        with urlopen(self.url, timeout=3) as response:
+            self.assertEqual(json.load(response), {**snapshot, 'expectedCount': 0})
+
+    def test_invalid_empty_candidate_is_rejected(self):
+        for extra in ({'parcels': [{'title': '残缺结果'}]}, {'expectedCount': 1}, {'readAt': ''}):
+            self.write_snapshot({'state': 'filtered_empty', 'parcels': [], 'expectedCount': 0, 'readAt': '2026-10-31T04:00:00.000Z', **extra})
+            with self.subTest(extra=extra), self.assertRaises(HTTPError) as caught:
+                urlopen(self.url, timeout=3)
+            self.assertEqual(caught.exception.code, 503)
 
     def test_unknown_state_is_rejected(self):
         self.write_snapshot({'state': 'unknown', 'parcels': []})

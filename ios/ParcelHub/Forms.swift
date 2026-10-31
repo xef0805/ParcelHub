@@ -91,9 +91,9 @@ struct AddParcelView: View {
                         Label("物流与去重", systemImage: "number").font(.headline)
                         field("快递公司", placeholder: "例如：中通、韵达", value: $carrier)
                         field("完整快递单号", placeholder: "建议补全，尾号不能跨平台去重", value: $number, monospaced: true)
-                        Text("相同完整单号和物流公司会合并为一个包裹，各平台取件码分别保留。短信没有完整单号时，只能保守核对原文、地点和取件码。").font(.caption).foregroundStyle(.secondary)
+                        Text("完整单号用于去重，各平台取件码单独保留。").font(.caption).foregroundStyle(.secondary)
                     }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
-                    Text("保存后，短信原文及导入时间仅保留在本机，可用“短信身份码”展示。不会自动读取短信收件箱。").font(.caption).foregroundStyle(.secondary)
+                    Text("短信仅存本机，可作取件凭证。不读取短信收件箱。").font(.caption).foregroundStyle(.secondary)
                 }.padding(20)
             }.background(Palette.paper).scrollDismissesKeyboard(.interactively)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -108,7 +108,7 @@ struct AddParcelView: View {
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
                 .alert("包裹已存在", isPresented: $showingDuplicateNotice) {
                     Button("知道了") { dismiss() }
-                } message: { Text("已合并到原包裹，没有重复添加。原有取件状态保持不变。") }
+                } message: { Text("已合并到原包裹，取件状态不变。") }
                 .onAppear {
                     clipboard.isEditing = true
                     if title.isEmpty { title = SMSDraftReader.read("", history: store.parcels)?.title ?? "" }

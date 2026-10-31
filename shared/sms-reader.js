@@ -54,10 +54,10 @@
     if (match && Number.isSafeInteger(Number(match[1]))) serial = Math.max(serial, Number(match[1]) + 1);
   }
   const state = codeCandidates.length === 1 ? 'ready' : codeCandidates.length > 1 ? 'choose_code' : 'needs_code';
-  const message = state === 'choose_code' ? '识别到多个取件码，请选择本次要添加的一件'
-    : state === 'needs_code' ? '未明确识别取件码，请核对短信或手动填写'
-    : stationSource === 'history' ? `已沿用上次${carrier}的取件地点，请确认本次仍在此处`
-    : stationSource === 'missing' ? '已识别取件码，请补充取件地点' : '已从短信识别，请核对后保存';
+  const message = state === 'choose_code' ? '有多个取件码，请选一个'
+    : state === 'needs_code' ? '未识别取件码，请核对或补填'
+    : stationSource === 'history' ? `沿用${carrier}上次地点，请核对`
+    : stationSource === 'missing' ? '请补充取件地点' : '已识别，请核对后保存';
   return { state, message, title: `${shortDay}包裹${serial}号`, sender, carrier, providerID, station, stationSource,
     pickupCode: codeCandidates.length === 1 ? codeCandidates[0] : '', codeCandidates, trackingNumber: tracking };
 })

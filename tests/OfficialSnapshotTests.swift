@@ -38,6 +38,26 @@ struct OfficialSnapshotTests {
         var collected = first[0]
         collected.id = UUID(); collected.collectedAt = now; collected.trackingNumber = "COLLECTED00001"; collected.credentials = nil
         let original = [legacy, manual, other, collected]
+        var confirmation = OfficialEmptyConfirmation()
+        let emptyCandidate = OfficialPageRead(state: "filtered_empty", message: "", parcels: [], expectedCount: nil, readAt: "2026-10-31T04:00:00.000Z")
+        var repeatedEmpty = emptyCandidate
+        repeatedEmpty.readAt = "2026-10-31T04:00:00.750Z"
+        precondition(confirmation.accepting(emptyCandidate).state == "filtered_empty")
+        precondition(confirmation.accepting(emptyCandidate).state == "filtered_empty", "Cached snapshot replay is not a second read")
+        let confirmedEmpty = confirmation.accepting(repeatedEmpty)
+        precondition(confirmedEmpty.state == "ready" && confirmedEmpty.expectedCount == 0)
+        let afterPickup = try OfficialSnapshotMerge.applying(confirmedEmpty, to: original)
+        precondition(!afterPickup[0].isPending && afterPickup[1].isPending && afterPickup[2].isPending)
+        precondition(afterPickup[3].collectedAt == now && afterPickup.count == original.count)
+        confirmation.reset()
+        _ = confirmation.accepting(emptyCandidate)
+        _ = confirmation.accepting(OfficialPageRead(state: "login_required", message: "", parcels: [], expectedCount: nil, readAt: ""))
+        precondition(confirmation.accepting(repeatedEmpty).state == "filtered_empty", "Login failure resets empty confirmation")
+        confirmation.reset()
+        _ = confirmation.accepting(emptyCandidate)
+        var staleEmpty = repeatedEmpty
+        staleEmpty.readAt = "2026-10-31T04:00:06.000Z"
+        precondition(confirmation.accepting(staleEmpty).state == "filtered_empty")
         let empty = OfficialPageRead(state: "ready", message: "", parcels: [], expectedCount: 0, readAt: "test")
         let cleared = try OfficialSnapshotMerge.applying(empty, to: original)
         precondition(cleared.count == 4 && cleared[0].inLatestOfficialSnapshot == false)

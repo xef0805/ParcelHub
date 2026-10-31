@@ -34,8 +34,12 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 data = json.loads(snapshot.read_text(encoding='utf-8'))
-                if data.get('state') != 'ready':
-                    if data.get('state') not in ('login_required', 'loading', 'error', 'filtered_empty'):
+                if data.get('state') == 'filtered_empty':
+                    if data.get('parcels') != [] or data.get('expectedCount') not in (None, 0) or not isinstance(data.get('readAt'), str) or not data['readAt']:
+                        raise ValueError('Invalid empty candidate')
+                    data = {'state': 'filtered_empty', 'message': str(data.get('message', '')), 'parcels': [], 'expectedCount': 0, 'readAt': data['readAt']}
+                elif data.get('state') != 'ready':
+                    if data.get('state') not in ('login_required', 'loading', 'error'):
                         raise ValueError('Invalid official read')
                     # 非完整状态仅传递提示，不向界面提供残缺包裹列表。
                     data = {'state': data['state'], 'message': str(data.get('message', ''))}

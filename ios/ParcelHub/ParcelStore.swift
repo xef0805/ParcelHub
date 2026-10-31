@@ -56,7 +56,7 @@ final class ParcelStore: ObservableObject {
                 identityBindings = try JSONDecoder().decode([String: IdentityBinding].self, from: data).filter { enabledProviderIDs.contains($0.key) }
             }
         } catch {
-            storageWarning = "本地数据读取失败，暂不覆盖原记录。请保留现有数据并反馈问题。"
+            storageWarning = "本地记录读取失败，原数据未改动"
         }
     }
 

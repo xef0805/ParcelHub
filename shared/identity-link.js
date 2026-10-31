@@ -4,7 +4,7 @@
   const share = value.match(/^#小程序:\/\/([^/\s]+)\/([A-Za-z0-9_-]+)$/);
   if (share) {
     if (expectedName && share[1] !== expectedName) return { error: `这个口令属于「${share[1]}」，请选择对应平台` };
-    return { kind: 'shareCode', value, message: '这是微信口令，不能确认能从 App 直达；可复制到微信中打开。' };
+    return { kind: 'shareCode', value, message: '微信口令需复制到微信内打开。' };
   }
   // 只保存平台提供的完整票据，不用分享口令拼接或猜测微信 Scheme。
   if (/^weixin:\/\/dl\/business\/\?t=[A-Za-z0-9_%=-]+$/.test(value)
@@ -19,7 +19,7 @@
       }
       if (!resolvedURL) return { error: '未能核对官方链接的目标小程序，请重新获取链接后试开' };
     }
-    return { kind: 'launchURL', value, resolvedURL, message: '请先试开，确认进入对应小程序后再绑定。链接可能到期。' };
+    return { kind: 'launchURL', value, resolvedURL, message: '先试开再绑定，链接失效时重新获取。' };
   }
   return { error: '暂不支持此链接。请使用完整的微信小程序口令或官方跳转链接，不要填写身份码。' };
 })

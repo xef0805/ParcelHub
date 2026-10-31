@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { mergeOfficialSnapshot, demoState, filterParcels } from '../preview/model.mjs';
+import { OfficialEmptyConfirmation, SERVICE_MESSAGES } from '../preview/service-status.mjs';
 
 const source = await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8');
 const read = vm.runInNewContext(source);
@@ -62,12 +63,45 @@ test('按手机号未查到包裹不能当作加载中或账号完整空清单�
     assert.equal(result.state, 'filtered_empty');
     assert.equal(result.expectedCount, null);
     assert.equal(result.parcels.length, 0);
-    assert.match(result.message, /手机号/);
+    assert.equal(result.message, SERVICE_MESSAGES.phoneFilter);
     assert.equal(JSON.stringify(result).includes('100****0000'), false);
     assert.throws(() => mergeOfficialSnapshot(demoState(), JSON.parse(JSON.stringify(result))));
   }
   assert.equal(read('待取件\n未查到包裹').state, 'loading');
   assert.equal(read('请重新登录\n待取件\n未查到100****0000的包裹').state, 'login_required');
+});
+
+test('取完后连续两次确认手机号空清单，移出淘宝旧件并保留其他来源、短信和历史', () => {
+  const original = mergeOfficialSnapshot({version:1,customProviders:[],parcels:[]}, JSON.parse(JSON.stringify(read(page))));
+  const example = original.parcels[0];
+  original.parcels[0].smsOriginal = '虚构短信原文';
+  original.parcels.push(
+    {...example,id:'sms-only',trackingNumber:'SMS0000001',source:'sms',providerID:'manual',credentials:null},
+    {...example,id:'other-source',trackingNumber:'TUXI000001',source:'tuxi-web',providerID:'tuxi',credentials:null},
+    {...example,id:'collected',trackingNumber:'COLLECTED0001',collectedAt:'2026-10-30T00:00:00Z',credentials:null}
+  );
+  const text = '输入包裹快递单号查询\n待取件\n追踪中\n已签收5\n已退回\n未查到\n100****0000\n的包裹\n首页\n身份码\n我的\n加载中';
+  const confirmation = new OfficialEmptyConfirmation();
+  const first = confirmation.accepting({...JSON.parse(JSON.stringify(read(text))),readAt:'2026-10-31T04:00:00.000Z'});
+  assert.equal(first.state,'filtered_empty');
+  assert.throws(()=>mergeOfficialSnapshot(original,first));
+  const second = confirmation.accepting({...JSON.parse(JSON.stringify(read(text))),readAt:'2026-10-31T04:00:00.750Z'});
+  assert.equal(second.state,'ready');
+  assert.equal(second.expectedCount,0);
+  const updated = mergeOfficialSnapshot(original,second);
+  assert.deepEqual(filterParcels(updated,[]).map(p=>p.id).sort(),['other-source','sms-only']);
+  assert.equal(updated.parcels.length,original.parcels.length);
+  assert.equal(updated.parcels.find(p=>p.id===example.id).smsOriginal,'虚构短信原文');
+  assert.equal(filterParcels(updated,[],{collected:true}).length,1);
+  assert.equal(original.parcels[0].inLatestOfficialSnapshot,true);
+});
+
+test('手机号空提示与正数量或残留取件卡片冲突时不能确认清空', () => {
+  for (const text of [
+    '待取件（1）\n未查到100****0000的包裹',
+    '待取件\n0\n未查到100****0000的包裹\n01-2-0001'
+  ]) assert.equal(read(text).state,'error');
+  assert.equal(read('待取件\n追踪中\n已签收5\n您的2个手机号\n›\n都未查到包裹').state,'filtered_empty');
 });
 test('官方读取可合并已有手动记录，保留原记录标识和前导零', () => {
   const snapshot = JSON.parse(JSON.stringify(read(page)));
