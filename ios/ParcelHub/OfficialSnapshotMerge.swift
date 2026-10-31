@@ -14,7 +14,7 @@ enum OfficialSnapshotMerge {
                   keys.insert(key(row.carrier, row.trackingNumber)).inserted else { throw InvalidSnapshot() }
         }
         var parcels = ParcelIdentity.coalescing(original)
-        // 空快照也会移出旧记录；仅处理淘宝读取来源，手动和其他平台记录不受影响。
+        // 先更新来源状态，完整合并后再将不再待取的淘宝记录归入已取历史。
         for index in parcels.indices where ["cainiao-web", "taobao-web"].contains(parcels[index].source ?? "") {
             parcels[index].inLatestOfficialSnapshot = false
         }
@@ -44,6 +44,15 @@ enum OfficialSnapshotMerge {
             parcel.inLatestOfficialSnapshot = true
             parcel.lastReadAt = now
             if let index { parcels[index] = parcel } else { parcels.insert(parcel, at: 0) }
+        }
+        for index in parcels.indices {
+            let parcel = parcels[index]
+            guard !parcel.isDemo, !parcel.isCollected, parcel.deletedAt == nil, parcel.awaitingArrival != true,
+                  !parcel.isPending,
+                  parcel.pickupCredentials.contains(where: { ["cainiao-web", "taobao-web"].contains($0.source) }) else { continue }
+            // 官方没有返回实际出库时间，按本次同步时间归档，并在界面注明。
+            parcels[index].collectedAt = now
+            parcels[index].collectionConfirmedBySync = true
         }
         return parcels
     }

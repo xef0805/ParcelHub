@@ -1,4 +1,4 @@
-import { STORAGE_KEY, addParcel, filterWatching, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot, credentialProviders, deleteCollected, pickupCredentials, groupCollected, bindStationCredential, boundStationProvider } from './model.mjs';
+import { STORAGE_KEY, addParcel, filterWatching, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot, credentialProviders, reorderProvider, deleteCollected, pickupCredentials, groupCollected, bindStationCredential, boundStationProvider } from './model.mjs';
 import { displayPreferences, localizeDOM } from './i18n.mjs';
 import { ModalNavigation } from './modal-navigation.mjs';
 import { SERVICE_MESSAGES, statusForSnapshot, OfficialEmptyConfirmation } from './service-status.mjs';
@@ -11,6 +11,7 @@ const key = testing ? 'tutu.preview.test.v1' : STORAGE_KEY;
 let catalog = [], assets = [], state, readSMS, parseIdentityLink, classifyImport, readonly = false, currentPage = 'packages';
 let toastTimer,clipboardCandidate,lastClipboardText='',testServiceState='normal';
 let refreshingSnapshot=false;
+let sorting=false,providerDrag;
 const settingsNavigation=new ModalNavigation();let renderingSettings=false;
 const emptyConfirmation=new OfficialEmptyConfirmation();
 const providers = () => [...catalog, ...state.customProviders];
@@ -36,6 +37,8 @@ function applyDisplayPreferences() {
 new MutationObserver(()=>localizeDOM(document.body,displayPreferences(state).language,english))
   .observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['placeholder','aria-label','title']});
 function page(name) {
+  if(name!=='providers'&&providerDrag)finishProviderDrag(true);
+  if(name!=='providers'&&sorting){sorting=false;render();}
   currentPage = ['packages','providers','my'].includes(name) ? name : 'packages';
   document.querySelectorAll('.page').forEach(p => p.hidden = p.id !== `page-${currentPage}`);
   document.querySelectorAll('[data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === currentPage));
@@ -43,17 +46,17 @@ function page(name) {
 }
 const copyIcon='<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M8 8h12v13H8zM16 8V3H3v13h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
 const trashIcon='<svg viewBox="0 0 24 24" width="23" height="23" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 10v7M14 10v7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-function updateStamp(value){
+function updateStamp(value,label='更新'){
   const date=new Date(value);if(!Number.isFinite(date.getTime()))return '';
   const today=new Date(),language=displayPreferences(state).language==='en'?'en-US':'zh-CN';
   const sameDay=date.toDateString()===today.toDateString();
   const options={hour:'2-digit',minute:'2-digit',hour12:false,...(sameDay?{}:{month:'numeric',day:'numeric',...(date.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})})};
-  return `<span class="update-stamp"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 5v5l3 2"/></svg><span>更新</span><time datetime="${esc(date.toISOString())}" title="${esc(date.toLocaleString(language))}" data-user-content>${esc(date.toLocaleString(language,options))}</time></span>`;
+  return `<span class="update-stamp"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 5v5l3 2"/></svg><span>${esc(label)}</span><time datetime="${esc(date.toISOString())}" title="${esc(date.toLocaleString(language))}" data-user-content>${esc(date.toLocaleString(language,options))}</time></span>`;
 }
 function card(p) {
   const provider=providers().find(x=>x.id===p.providerID);
   const alternatives=pickupCredentials(p).filter(c=>c.isCurrent&&c.pickupCode&&c.pickupCode!==p.pickupCode);
-  const article=`<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier)||p.providerID)}<div class="parcel-info"><h3 data-user-content>${esc(p.title)}</h3><p><span data-user-content>${esc(p.carrier||'快递')}</span> · <span>${p.smsOriginal?'含短信凭证':esc(provider?.name||'历史记录')}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}">${p.collectedAt?'恢复待取':'我已取件'}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong>${p.collectedAt?'':`<button data-copy="${esc(p.id)}">复制</button>`}</div>${p.trackingNumber?`<div class="tracking-line"><span>运单号</span> <span data-user-content>${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></div>`:''}${p.collectedAt&&p.smsOriginal?`<button class="sms-pass-button" data-sms="${esc(p.id)}">✉ 短信身份码</button>`:''}${alternatives.map(c=>`<p class="tracking-line">${esc(providers().find(x=>x.id===c.providerID)?.name||'其他来源')}取件码 · ${esc(c.pickupCode)}</p>`).join('')}${p.lastReadAt?`<div class="parcel-update">${updateStamp(p.lastReadAt)}</div>`:''}</article>`;
+  const article=`<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier)||p.providerID)}<div class="parcel-info"><h3 data-user-content>${esc(p.title)}</h3><p><span data-user-content>${esc(p.carrier||'快递')}</span> · <span>${p.smsOriginal?'含短信凭证':esc(provider?.name||'历史记录')}</span></p></div><button class="collect-button" data-collect="${esc(p.id)}">${p.collectedAt?'恢复待取':'我已取件'}</button></div><div class="code-row"><strong>${esc(p.pickupCode)}</strong>${p.collectedAt?'':`<button data-copy="${esc(p.id)}">复制</button>`}</div>${p.trackingNumber?`<div class="tracking-line"><span>运单号</span> <span data-user-content>${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></div>`:''}${p.collectedAt&&p.smsOriginal?`<button class="sms-pass-button" data-sms="${esc(p.id)}">✉ 短信身份码</button>`:''}${alternatives.map(c=>`<p class="tracking-line">${esc(providers().find(x=>x.id===c.providerID)?.name||'其他来源')}取件码 · ${esc(c.pickupCode)}</p>`).join('')}${p.collectedAt&&p.collectionConfirmedBySync?`<div class="parcel-update">${updateStamp(p.collectedAt,'同步确认已取')}</div>`:p.lastReadAt?`<div class="parcel-update">${updateStamp(p.lastReadAt)}</div>`:''}</article>`;
   return p.collectedAt?`<div class="history-swipe" data-history-swipe="${esc(p.id)}"><button class="history-delete" data-delete-collected="${esc(p.id)}" aria-label="删除${esc(p.title)}" tabindex="-1">${trashIcon}</button>${article}</div>`:article;
 }
 function smsView(id){
@@ -85,9 +88,13 @@ function render() {
   $('#watching-panel').hidden=!watching.length;
   $('#watching-count').textContent=watching.length;
   $('#watching-list').innerHTML=watching.map(p=>`<article class="parcel-card tracking-card"><div class="tracking-head"><div><h3 data-user-content>${esc(p.title)}</h3><div class="tracking-line"><span data-user-content>${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></div></div><span>待确认</span></div><div class="tracking-actions"><button class="text-button" data-complete-tracking="${esc(p.id)}">补充取件短信</button></div></article>`).join('');
+  if(providerDrag)return;
   const all = ordered();
-  $('#provider-grid').innerHTML = all.map(p=>`<div class="provider-tile" role="button" tabindex="0" data-entry="${esc(p.id)}" aria-label="打开${esc(p.name)}">
-    ${mark(p.id)}<div class="detail"><strong>${esc(p.name)}${p.id==='sms'?'':p.id==='fcbox'?'取件':'身份码'}</strong><small>${p.id==='sms'?'查看取件短信':p.identityURL?'官方身份码':state.identityBindings?.[p.id]?.confirmed?'已绑定 · 点击打开':'首次打开需绑定'}</small></div><span>›</span></div>`).join('');
+  $('#provider-grid').classList.toggle('sorting',sorting);
+  $('#sort-providers').textContent=sorting?'完成':'排序';
+  $('#sort-providers').setAttribute('aria-pressed',String(sorting));
+  $('#provider-grid').innerHTML = all.map(p=>`<div class="provider-tile" role="${sorting?'group':'button'}" tabindex="${sorting?-1:0}" data-entry="${esc(p.id)}" aria-label="打开${esc(p.name)}">
+    ${mark(p.id)}<div class="detail"><strong id="provider-name-${esc(p.id)}">${esc(p.name)}${p.id==='sms'?'':p.id==='fcbox'?'取件':'身份码'}</strong><small>${p.id==='sms'?'查看取件短信':p.identityURL?'官方身份码':state.identityBindings?.[p.id]?.confirmed?'已绑定 · 点击打开':'首次打开需绑定'}</small></div>${sorting?`<button class="sort-handle" data-sort-handle="${esc(p.id)}" aria-label="排序" aria-describedby="provider-name-${esc(p.id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>`:'<span>›</span>'}</div>`).join('');
 }
 function open(content) {
   if(!renderingSettings)settingsNavigation.clear();
@@ -261,7 +268,7 @@ function settingsLink(id,title,icon,detail='') {return `<button class="settings-
 function settingsToggle(id,title,icon,enabled) {return `<label class="settings-switch-row">${settingsIcon(icon)}<span class="settings-row-title">${title}</span><span class="ios-switch"><input id="${id}" type="checkbox" role="switch" aria-label="${title}" ${enabled?'checked':''}><span class="switch-track"></span></span></label>`;}
 function settings() {
   const preferences=displayPreferences(state),appearance={system:'跟随系统',light:'浅色',dark:'深色'}[preferences.appearance];
-  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.5</p>`);
+  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.6</p>`);
   modal.classList.add('settings-dialog');
   $('#auto-sync').onchange=event=>save({...state,autoSyncEnabled:event.target.checked});
   $('#clipboard-detection').onchange=event=>{save({...state,clipboardDetectionEnabled:event.target.checked});if(!event.target.checked){clipboardCandidate=null;$('#clipboard-modal').close();}else{lastClipboardText='';checkClipboard();}};
@@ -312,9 +319,14 @@ async function refresh() {
 window.addEventListener('offline',refresh);window.addEventListener('online',refresh);
 $('#login-retry').onclick=officialLogin;
 document.addEventListener('click',event=>{
+  const historyRow=event.target.closest('[data-history-swipe]');
+  if(historyRow&&event.target===historyRow&&Date.now()<=suppressEntryUntil)return;
+  if(historyRow?.classList.contains('swiped')&&!event.target.closest('[data-delete-collected]')){
+    historyRow.classList.remove('swiped');historyRow.querySelector('.history-delete').tabIndex=-1;return;
+  }
   const control=event.target.closest('button,[data-entry]');if(!control)return;
   if(control.dataset.page)page(control.dataset.page);
-  if(control.dataset.entry&&Date.now()>suppressEntryUntil)entry(control.dataset.entry);
+  if(control.dataset.entry&&!sorting&&Date.now()>suppressEntryUntil)entry(control.dataset.entry);
   if(control.dataset.manageLink){const id=control.dataset.manageLink;if(settingsNavigation.depth)pushSettingsPage(()=>entry(id,true));else entry(id,true);}
   if(control.dataset.station)stationEntry(control.dataset.station);
   if(control.dataset.bindProvider){save(bindStationCredential(state,control.dataset.bindStation,control.dataset.bindProvider,providers()));if(control.dataset.bindProvider==='sms')smsEntry(control.dataset.bindStation);else entry(control.dataset.bindProvider);}
@@ -327,8 +339,9 @@ document.addEventListener('click',event=>{
   if(control.dataset.copy){const p=state.parcels.find(p=>p.id===control.dataset.copy);if(p)copy(p.pickupCode);}
   if(control.classList.contains('close-modal'))modal.close();
 });
-document.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.dataset.entry)entry(event.target.dataset.entry);});
+document.addEventListener('keydown',event=>{if(!sorting&&['Enter',' '].includes(event.key)&&event.target.dataset.entry){event.preventDefault();entry(event.target.dataset.entry);}});
 let swipe, suppressEntryUntil=0;
+$('#sort-providers').onclick=()=>{sorting=!sorting;render();};
 $('#add-parcel').onclick=()=>parcelForm();
 $('#clipboard-import').onclick=()=>{if(!clipboardCandidate)return;const candidate=clipboardCandidate;clipboardCandidate=null;$('#clipboard-modal').close();page('packages');if(candidate.kind==='sms')parcelForm(candidate.text);};
 $('#clipboard-dismiss').onclick=()=>{clipboardCandidate=null;$('#clipboard-modal').close();};
@@ -365,15 +378,51 @@ try {
 
 document.addEventListener('pointerdown',event=>{
   const row=event.target.closest('[data-history-swipe]');if(!row||event.target.closest('button'))return;
-  swipe={row,startX:event.clientX,startY:event.clientY,dx:row.classList.contains('swiped')?72:0,offset:row.classList.contains('swiped')?72:0,locked:false};
+  document.querySelectorAll('.history-swipe.swiped').forEach(other=>{if(other!==row){other.classList.remove('swiped');other.querySelector('.history-delete').tabIndex=-1;}});
+  swipe={row,startX:event.clientX,startY:event.clientY,dx:row.classList.contains('swiped')?-60:0,offset:row.classList.contains('swiped')?-60:0,locked:false};
+  if(event.pointerType==='mouse')event.preventDefault();
 });
 document.addEventListener('pointermove',event=>{
   if(!swipe)return;const dx=event.clientX-swipe.startX,dy=event.clientY-swipe.startY;
   if(!swipe.locked&&Math.abs(dy)>12){swipe=null;return;}
   if(!swipe.locked&&Math.abs(dx)>12){swipe.locked=true;swipe.row.setPointerCapture(event.pointerId);}
-  if(swipe.locked){event.preventDefault();swipe.dx=Math.max(0,Math.min(76,swipe.offset+dx));swipe.row.querySelector('.parcel-card').style.transform=`translateX(${swipe.dx}px)`;}
+  if(swipe.locked){event.preventDefault();swipe.dx=Math.min(0,Math.max(-60,swipe.offset+dx));swipe.row.querySelector('.parcel-card').style.transform=`translateX(${swipe.dx}px)`;}
 },{passive:false});
 const endHistorySwipe=()=>{if(!swipe)return;const {row,locked,dx}=swipe;
-  if(locked){row.classList.toggle('swiped',dx>42);row.querySelector('.parcel-card').style.transform='';row.querySelector('.history-delete').tabIndex=dx>42?0:-1;suppressEntryUntil=Date.now()+400;}swipe=null;};
+  if(locked){row.classList.toggle('swiped',dx< -28);row.querySelector('.parcel-card').style.transform='';row.querySelector('.history-delete').tabIndex=dx< -28?0:-1;suppressEntryUntil=Date.now()+400;}swipe=null;};
 document.addEventListener('pointerup',endHistorySwipe);document.addEventListener('pointercancel',()=>{if(swipe){swipe.row.querySelector('.parcel-card').style.transform='';swipe=null;}});
 document.addEventListener('keydown',event=>{if(event.key==='Delete'){const row=event.target.closest('[data-history-swipe]');if(row){row.classList.add('swiped');row.querySelector('.history-delete').tabIndex=0;row.querySelector('.history-delete').focus();}}});
+
+document.addEventListener('pointerdown',event=>{
+  const handle=event.target.closest('[data-sort-handle]');if(!sorting||!handle)return;
+  const tile=handle.closest('.provider-tile');
+  providerDrag={id:handle.dataset.sortHandle,tile,handle,startX:event.clientX,startY:event.clientY,startScrollY:scrollY,positions:[...$('#provider-grid').children].map(tile=>({tile,rect:tile.getBoundingClientRect()})),target:null,moved:false};
+  handle.setPointerCapture(event.pointerId);event.preventDefault();
+});
+document.addEventListener('pointermove',event=>{
+  if(!providerDrag)return;
+  const drag=providerDrag,dy=event.clientY-drag.startY,dx=event.clientX-drag.startX;
+  if(!drag.moved&&Math.hypot(dx,dy)<8)return;
+  drag.moved=true;drag.tile.classList.add('dragging');drag.tile.style.transform=`translate(${dx}px,${dy}px)`;
+  const tiles=[...$('#provider-grid').children];
+  const candidates=drag.positions.map(({tile,rect:r})=>({tile,distance:Math.hypot(event.clientX-r.x-r.width/2,event.clientY-r.y+(scrollY-drag.startScrollY)-r.height/2)}));
+  drag.target=candidates.sort((a,b)=>a.distance-b.distance)[0]?.tile;
+  tiles.forEach(tile=>tile.classList.toggle('drop-target',tile===drag.target));
+  if(event.clientY>innerHeight-100)window.scrollBy({top:20});else if(event.clientY<80)window.scrollBy({top:-20});
+  event.preventDefault();
+},{passive:false});
+function finishProviderDrag(cancelled=false){
+  const drag=providerDrag;if(!drag)return;providerDrag=null;
+  if(drag.moved&&!cancelled&&drag.target){
+    const destination=[...$('#provider-grid').children].indexOf(drag.target);
+    save(reorderProvider(state,ordered(),drag.id,destination));suppressEntryUntil=Date.now()+400;
+  }else render();
+}
+document.addEventListener('pointerup',()=>finishProviderDrag());
+document.addEventListener('pointercancel',()=>finishProviderDrag(true));
+document.addEventListener('keydown',event=>{
+  const handle=event.target.closest('[data-sort-handle]');if(!sorting||!handle||!['ArrowUp','ArrowDown'].includes(event.key))return;
+  event.preventDefault();const id=handle.dataset.sortHandle,all=ordered(),index=all.findIndex(p=>p.id===id);
+  save(reorderProvider(state,all,id,index+(event.key==='ArrowUp'?-1:1)));
+  document.querySelector(`[data-sort-handle="${CSS.escape(id)}"]`)?.focus();
+});

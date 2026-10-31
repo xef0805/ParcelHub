@@ -189,6 +189,60 @@ test('空官方快照不删除单号导入记录，已存在待取件不退回�
   const duplicate=addTracking(ready,{trackingNumber:incoming.trackingNumber,carrier:incoming.carrier});
   assert.equal(filterWatching(duplicate).length,0);assert.equal(filterParcels(duplicate,catalog).length,1);
 });
+
+test('淘宝清单清空后恢复已取记录，刷新和重新读取存档仍保留待取，直到再次标记已取',()=>{
+  const snapshot={state:'ready',expectedCount:1,readAt:new Date().toISOString(),parcels:[{...draft,providerID:'taobao'}]};
+  const arrived=mergeOfficialSnapshot(empty(),snapshot),id=arrived.parcels[0].id;
+  const emptySnapshot={...snapshot,expectedCount:0,parcels:[]};
+  const cleared=mergeOfficialSnapshot(arrived,emptySnapshot);
+  assert.equal(filterParcels(cleared,catalog,{collected:true}).length,1);
+  assert.equal(cleared.parcels[0].collectionConfirmedBySync,true);
+  const restored=toggleCollected(cleared,id);
+  assert.equal(filterParcels(restored,catalog).length,1);
+  assert.equal(filterParcels(restored,catalog,{collected:true}).length,0);
+  assert.equal(restored.parcels[0].collectionConfirmedBySync,null);
+  assert.equal(restored.parcels[0].inLatestOfficialSnapshot,false);
+  assert.equal(pickupCredentials(restored.parcels[0])[0].isCurrent,false);
+  const saved=validateSavedState(JSON.parse(JSON.stringify(restored)),catalog);
+  const refreshed=mergeOfficialSnapshot(mergeOfficialSnapshot(saved,snapshot),emptySnapshot);
+  assert.equal(refreshed.parcels.length,1);
+  assert.equal(filterParcels(refreshed,catalog)[0].id,id);
+  const done=mergeOfficialSnapshot(toggleCollected(refreshed,id),snapshot);
+  assert.equal(filterParcels(done,catalog).length,0);
+  assert.equal(filterParcels(done,catalog,{collected:true}).length,1);
+  assert.equal(done.parcels[0].collectionConfirmedBySync,null);
+  assert.equal(filterParcels(mergeOfficialSnapshot(arrived,emptySnapshot),catalog).length,0);
+});
+
+test('部分包裹取走只归档缺失件，同件其他官方来源仍待取则保留；旧版隐藏件可重新归档',()=>{
+  const row={...draft,providerID:'taobao'};
+  const snapshot={state:'ready',expectedCount:2,readAt:new Date().toISOString(),parcels:[row,{...row,trackingNumber:'SF00002'}]};
+  const arrived=mergeOfficialSnapshot(empty(),snapshot);
+  const next=mergeOfficialSnapshot(arrived,{...snapshot,expectedCount:1,parcels:[row]});
+  assert.deepEqual(filterParcels(next,catalog).map(p=>p.trackingNumber),['SF00001']);
+  assert.deepEqual(filterParcels(next,catalog,{collected:true}).map(p=>p.trackingNumber),['SF00002']);
+  const archived=next.parcels.find(p=>p.trackingNumber==='SF00002');
+  const repeated=mergeOfficialSnapshot(next,{...snapshot,expectedCount:0,parcels:[]});
+  assert.equal(repeated.parcels.find(p=>p.id===archived.id).collectedAt,archived.collectedAt);
+  const shared=addParcel(arrived,{...draft,providerID:'tuxi'},catalog);
+  shared.parcels.find(p=>p.trackingNumber===row.trackingNumber).credentials.push({providerID:'tuxi',station:draft.station,pickupCode:'R-001',source:'tuxi-web',isCurrent:true,lastSeenAt:snapshot.readAt});
+  assert.equal(filterParcels(mergeOfficialSnapshot(shared,{...snapshot,expectedCount:0,parcels:[]}),catalog).length,1);
+  const hidden={...arrived,parcels:arrived.parcels.map(p=>({...p,inLatestOfficialSnapshot:false,credentials:pickupCredentials(p).map(c=>({...c,isCurrent:false}))}))};
+  assert.equal(filterParcels(hidden,catalog).length,0);
+  assert.equal(filterParcels(hidden,catalog,{collected:true}).length,0);
+  const recovered=mergeOfficialSnapshot(hidden,{...snapshot,expectedCount:0,parcels:[]});
+  assert.equal(filterParcels(recovered,catalog,{collected:true}).length,2);
+});
+
+test('官方仍有包裹时恢复，之后空清单也不撤销手动操作；删除记录不能恢复',()=>{
+  const snapshot={state:'ready',expectedCount:1,readAt:new Date().toISOString(),parcels:[{...draft,providerID:'taobao'}]};
+  const arrived=mergeOfficialSnapshot(empty(),snapshot),id=arrived.parcels[0].id;
+  const collected=toggleCollected(arrived,id);
+  const restored=toggleCollected(collected,id);
+  assert.equal(filterParcels(mergeOfficialSnapshot(restored,{...snapshot,expectedCount:0,parcels:[]}),catalog).length,1);
+  const removed=deleteCollected(collected,id);
+  assert.deepEqual(toggleCollected(removed,id).parcels,removed.parcels);
+});
 test('单号导入拒绝手机号、短验证码、纯字母和多行单号',()=>{
   for(const number of ['13800000000','123456','PASSWORD','SF123456789012\nJD123456789012'])assert.throws(()=>addTracking(empty(),{trackingNumber:number,carrier:''}));
 });

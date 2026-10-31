@@ -79,6 +79,20 @@ class PreviewSnapshotStatusTests(unittest.TestCase):
             urlopen(Request(self.url, headers={'Host': 'example.invalid'}), timeout=3)
         self.assertEqual(caught.exception.code, 403)
 
+    def test_damaged_snapshot_returns_service_error(self):
+        for value in (None, [], 'invalid'):
+            self.write_snapshot(value)
+            with self.subTest(value=value), self.assertRaises(HTTPError) as caught:
+                urlopen(self.url, timeout=3)
+            self.assertEqual(caught.exception.code, 503)
+
+    def test_private_files_and_directory_lists_are_not_exposed(self):
+        self.write_snapshot({'state': 'ready', 'parcels': []})
+        for path in ('/.private/official-snapshot.json', '/preview/../.private/official-snapshot.json', '/preview/%2e%2e/.private/official-snapshot.json', '/preview/'):
+            with self.subTest(path=path), self.assertRaises(HTTPError) as caught:
+                urlopen(self.url.replace('/api/official-snapshot', path), timeout=3)
+            self.assertEqual(caught.exception.code, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

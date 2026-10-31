@@ -122,7 +122,8 @@ export function coalesceParcels(records) {
     let merged=result[index];for(const credential of pickupCredentials(p))merged=attachCredential(merged,credential);
     merged.addedAt=Date.parse(merged.addedAt)<Date.parse(p.addedAt)?merged.addedAt:p.addedAt;
     merged.awaitingArrival=merged.awaitingArrival===true&&p.awaitingArrival===true;
-    merged.collectedAt=[merged.collectedAt,p.collectedAt].filter(Boolean).sort((a,b)=>Date.parse(b)-Date.parse(a))[0]||null;
+    if(p.collectedAt&&(!merged.collectedAt||Date.parse(p.collectedAt)>=Date.parse(merged.collectedAt))){merged.collectedAt=p.collectedAt;merged.collectionConfirmedBySync=p.collectionConfirmedBySync;}
+    merged.manualPendingOverride=merged.manualPendingOverride===true||p.manualPendingOverride===true?true:null;
     merged.deletedAt=merged.deletedAt||p.deletedAt;
     merged.smsFingerprint=merged.smsFingerprint||p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null);
     if(p.smsOriginal&&(!merged.smsOriginal||Date.parse(p.smsImportedAt)>Date.parse(merged.smsImportedAt)))Object.assign(merged,{smsOriginal:p.smsOriginal,smsSender:p.smsSender,smsImportedAt:p.smsImportedAt,smsFingerprint:p.smsFingerprint||smsFingerprint(p.smsOriginal)});
@@ -165,12 +166,12 @@ export function deleteCollected(state,id){
   return {...state,parcels:state.parcels.map(p=>p.id===id&&p.collectedAt?{...p,deletedAt:new Date().toISOString(),smsFingerprint:p.smsFingerprint||(p.smsOriginal?smsFingerprint(p.smsOriginal):null),smsOriginal:null,smsSender:null,smsImportedAt:null}:p)};
 }
 export function toggleCollected(state, id) {
-  return { ...state, parcels: state.parcels.map(p => p.id === id ? { ...p, collectedAt: p.collectedAt ? null : new Date().toISOString() } : p) };
+  return { ...state, parcels: state.parcels.map(p => p.id === id && !p.deletedAt ? { ...p, collectedAt: p.collectedAt ? null : new Date().toISOString(), manualPendingOverride: p.collectedAt ? true : null, collectionConfirmedBySync: null } : p) };
 }
 
 export function filterParcels(state, providers, { collected = false, providerID = 'all', search = '' } = {}) {
   const term = search.trim().toLocaleLowerCase();
-  return state.parcels.filter(p => !p.deletedAt && Boolean(p.collectedAt) === collected && (collected || (p.awaitingArrival!==true && (pickupCredentials(p).some(c=>c.source.endsWith('-web')) ? pickupCredentials(p).some(c=>c.source.endsWith('-web')&&c.isCurrent) : p.inLatestOfficialSnapshot !== false))) && (providerID === 'all' || p.providerID === providerID) &&
+  return state.parcels.filter(p => !p.deletedAt && Boolean(p.collectedAt) === collected && (collected || (p.awaitingArrival!==true && (p.manualPendingOverride===true || (pickupCredentials(p).some(c=>c.source.endsWith('-web')) ? pickupCredentials(p).some(c=>c.source.endsWith('-web')&&c.isCurrent) : p.inLatestOfficialSnapshot !== false)))) && (providerID === 'all' || p.providerID === providerID) &&
     (!term || [p.title, p.station, p.pickupCode, p.trackingNumber, p.carrier, providers.find(s => s.id === p.providerID)?.name || '']
       .join(' ').toLocaleLowerCase().includes(term)));
 }
@@ -197,6 +198,8 @@ export function validateSavedState(value, catalog) {
       if (p[key] !== undefined && p[key] !== null && typeof p[key] !== 'string') throw new Error('短信记录损坏');
     }
     if(p.awaitingArrival!==undefined&&p.awaitingArrival!==null&&typeof p.awaitingArrival!=='boolean')throw new Error('包裹状态损坏');
+    if(p.manualPendingOverride!==undefined&&p.manualPendingOverride!==null&&typeof p.manualPendingOverride!=='boolean')throw new Error('包裹状态损坏');
+    if(p.collectionConfirmedBySync!==undefined&&p.collectionConfirmedBySync!==null&&typeof p.collectionConfirmedBySync!=='boolean')throw new Error('包裹状态损坏');
     if (p.smsOriginal?.length > 8000 || (p.credentials !== undefined && p.credentials !== null && (!Array.isArray(p.credentials)
         || p.credentials.some(c=>!c||!['providerID','station','pickupCode','source','lastSeenAt'].every(k=>typeof c[k]==='string')||typeof c.isCurrent!=='boolean')))) throw new Error('取件凭证损坏');
     parcelIDs.add(p.id);
@@ -225,5 +228,14 @@ export function mergeOfficialSnapshot(state, snapshot) {
       providerID:'taobao',source:'taobao-web',lastReadAt:snapshot.readAt,inLatestOfficialSnapshot:true,awaitingArrival:false};
     incoming=attachCredential(incoming,{providerID:'taobao',station:row.station,pickupCode:row.pickupCode,source:'taobao-web',isCurrent:true,lastSeenAt:snapshot.readAt});
     if(index>=0)parcels[index]=incoming;else parcels.unshift(incoming);
-  }return {...state,parcels,lastOfficialReadAt:snapshot.readAt};
+  }
+  const confirmedAt=new Date().toISOString();
+  for(const parcel of parcels){
+    const credentials=pickupCredentials(parcel);
+    if(!parcel.isDemo&&!parcel.collectedAt&&!parcel.deletedAt&&parcel.awaitingArrival!==true&&parcel.manualPendingOverride!==true
+      &&credentials.some(c=>['taobao-web','cainiao-web'].includes(c.source))&&!credentials.some(c=>c.source.endsWith('-web')&&c.isCurrent)){
+      parcel.collectedAt=confirmedAt;parcel.collectionConfirmedBySync=true;
+    }
+  }
+  return {...state,parcels,lastOfficialReadAt:snapshot.readAt};
 }

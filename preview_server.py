@@ -34,6 +34,8 @@ class PreviewHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 data = json.loads(snapshot.read_text(encoding='utf-8'))
+                if not isinstance(data, dict):
+                    raise ValueError('Invalid snapshot object')
                 if data.get('state') == 'filtered_empty':
                     if data.get('parcels') != [] or data.get('expectedCount') not in (None, 0) or not isinstance(data.get('readAt'), str) or not data['readAt']:
                         raise ValueError('Invalid empty candidate')

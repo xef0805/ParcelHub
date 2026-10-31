@@ -87,6 +87,7 @@ final class ParcelStore: ObservableObject {
     }
 
     func moveProviders(from offsets: IndexSet, to destination: Int) {
+        guard storageWarning == nil else { return }
         var ordered = credentialProviders
         ordered.move(fromOffsets: offsets, toOffset: destination)
         providers = ordered + providers.filter { !enabledProviderIDs.contains($0.id) || $0.id == "manual" }
@@ -193,7 +194,7 @@ final class ParcelStore: ObservableObject {
 
     func toggleCollected(_ parcel: Parcel) {
         guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == parcel.id }) else { return }
-        parcels[index].collectedAt = parcel.isCollected ? nil : Date()
+        parcels[index].toggleCollected()
         persistParcels()
     }
 

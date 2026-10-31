@@ -30,6 +30,8 @@ struct Parcel: Codable, Identifiable {
     var credentials: [ParcelCredential]? = nil
     var deletedAt: Date? = nil
     var awaitingArrival: Bool? = nil
+    var manualPendingOverride: Bool? = nil
+    var collectionConfirmedBySync: Bool? = nil
 
     var isCollected: Bool { collectedAt != nil }
     var hasSMS: Bool { !(smsOriginal ?? "").isEmpty }
@@ -39,8 +41,18 @@ struct Parcel: Codable, Identifiable {
     }
     var isPending: Bool {
         guard !isDemo, !isCollected, deletedAt == nil, awaitingArrival != true else { return false }
+        if manualPendingOverride == true { return true }
         let official = pickupCredentials.filter { $0.source.hasSuffix("-web") }
         return official.isEmpty ? inLatestOfficialSnapshot != false : official.contains { $0.isCurrent }
+    }
+
+    mutating func toggleCollected(now: Date = Date()) {
+        guard deletedAt == nil else { return }
+        let restoring = isCollected
+        collectedAt = restoring ? nil : now
+        collectionConfirmedBySync = nil
+        // 手动恢复独立于官方清单；不能把过期的官方凭证标记为仍然有效。
+        manualPendingOverride = restoring ? true : nil
     }
 
     mutating func attach(_ credential: ParcelCredential) {
@@ -91,7 +103,11 @@ enum ParcelIdentity {
                 for credential in parcel.pickupCredentials { result[index].attach(credential) }
                 result[index].addedAt = min(result[index].addedAt, parcel.addedAt)
                 result[index].awaitingArrival = (result[index].awaitingArrival == true && parcel.awaitingArrival == true)
-                result[index].collectedAt = [result[index].collectedAt, parcel.collectedAt].compactMap { $0 }.max()
+                if let date = parcel.collectedAt, date >= (result[index].collectedAt ?? .distantPast) {
+                    result[index].collectedAt = date
+                    result[index].collectionConfirmedBySync = parcel.collectionConfirmedBySync
+                }
+                result[index].manualPendingOverride = (result[index].manualPendingOverride == true || parcel.manualPendingOverride == true) ? true : nil
                 result[index].deletedAt = result[index].deletedAt ?? parcel.deletedAt
                 result[index].smsFingerprint = result[index].smsFingerprint ?? parcel.smsFingerprint ?? parcel.smsOriginal.map { fingerprint($0) }
                 if parcel.hasSMS && (!result[index].hasSMS || (parcel.smsImportedAt ?? .distantPast) > (result[index].smsImportedAt ?? .distantPast)) {

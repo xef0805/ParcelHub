@@ -48,6 +48,7 @@ struct OfficialSnapshotTests {
         precondition(confirmedEmpty.state == "ready" && confirmedEmpty.expectedCount == 0)
         let afterPickup = try OfficialSnapshotMerge.applying(confirmedEmpty, to: original)
         precondition(!afterPickup[0].isPending && afterPickup[1].isPending && afterPickup[2].isPending)
+        precondition(afterPickup[0].isCollected && afterPickup[0].collectionConfirmedBySync == true)
         precondition(afterPickup[3].collectedAt == now && afterPickup.count == original.count)
         confirmation.reset()
         _ = confirmation.accepting(emptyCandidate)
@@ -59,10 +60,35 @@ struct OfficialSnapshotTests {
         staleEmpty.readAt = "2026-10-31T04:00:06.000Z"
         precondition(confirmation.accepting(staleEmpty).state == "filtered_empty")
         let empty = OfficialPageRead(state: "ready", message: "", parcels: [], expectedCount: 0, readAt: "test")
-        let cleared = try OfficialSnapshotMerge.applying(empty, to: original)
+        let cleared = try OfficialSnapshotMerge.applying(empty, to: original, now: now)
         precondition(cleared.count == 4 && cleared[0].inLatestOfficialSnapshot == false)
         precondition(cleared[1].inLatestOfficialSnapshot == true && cleared[2].inLatestOfficialSnapshot == true)
         precondition(cleared[3].collectedAt == now && cleared[3].inLatestOfficialSnapshot == false)
+        precondition(cleared[0].collectedAt == now && cleared[0].collectionConfirmedBySync == true)
+        precondition(!cleared[1].isCollected && !cleared[2].isCollected)
+        var restored = cleared[0]
+        restored.toggleCollected(now: now)
+        precondition(restored.isPending && !restored.isCollected && restored.collectionConfirmedBySync == nil)
+        precondition(restored.inLatestOfficialSnapshot == false && !restored.pickupCredentials[0].isCurrent)
+        let reloaded = try JSONDecoder().decode(Parcel.self, from: JSONEncoder().encode(restored))
+        let restoredWithOfficial = try OfficialSnapshotMerge.applying(snapshot, to: [reloaded], now: now)
+        var refreshed = try OfficialSnapshotMerge.applying(empty, to: restoredWithOfficial, now: now)
+        precondition(refreshed.count == 1 && refreshed[0].id == restored.id && refreshed[0].isPending)
+        refreshed[0].toggleCollected(now: now)
+        let markedAgain = try OfficialSnapshotMerge.applying(snapshot, to: refreshed, now: now)
+        precondition(markedAgain[0].isCollected && !markedAgain[0].isPending && markedAgain[0].collectionConfirmedBySync == nil)
+        var restoredBeforeEmpty = first[0]
+        restoredBeforeEmpty.toggleCollected(now: now)
+        restoredBeforeEmpty.toggleCollected(now: now)
+        let keptRestored = try OfficialSnapshotMerge.applying(empty, to: [restoredBeforeEmpty], now: now)
+        precondition(keptRestored[0].isPending)
+        // 旧版隐藏的记录在成功读取后归档，原数据与标识不丢失。
+        var oldHidden = cleared[0]
+        oldHidden.collectedAt = nil; oldHidden.collectionConfirmedBySync = nil
+        let recovered = try OfficialSnapshotMerge.applying(empty, to: [oldHidden], now: now)
+        precondition(recovered[0].id == oldHidden.id && recovered[0].isCollected)
+        let repeatedArchive = try OfficialSnapshotMerge.applying(empty, to: recovered, now: now.addingTimeInterval(60))
+        precondition(repeatedArchive[0].collectedAt == now)
         precondition(original[0].inLatestOfficialSnapshot == true)
         let updated = try OfficialSnapshotMerge.applying(snapshot, to: [legacy, other])
         precondition(updated.count == 2 && updated[0].id == legacy.id && updated[0].providerID == "taobao")
@@ -73,10 +99,16 @@ struct OfficialSnapshotTests {
         let merged = try OfficialSnapshotMerge.applying(snapshot, to: [same], now: now)
         precondition(merged.count == 1 && merged[0].id == same.id && merged[0].smsOriginal == same.smsOriginal)
         precondition(merged[0].pickupCredentials.count == 2, "Keep each source credential while deduplicating the physical parcel")
+        let otherStillPending = try OfficialSnapshotMerge.applying(empty, to: merged, now: now)
+        precondition(otherStillPending[0].isPending && !otherStillPending[0].isCollected)
         var deleted = merged[0]
         deleted.collectedAt = now; deleted.deletedAt = now; deleted.smsOriginal = nil
         let noResurrection = try OfficialSnapshotMerge.applying(snapshot, to: [deleted], now: now)
         precondition(noResurrection.count == 1 && !noResurrection[0].isPending && noResurrection[0].smsOriginal == nil)
+        deleted.toggleCollected(now: now)
+        precondition(deleted.isCollected && deleted.deletedAt == now)
+        let deletedAfterEmpty = try OfficialSnapshotMerge.applying(empty, to: [deleted], now: now)
+        precondition(deletedAfterEmpty[0].deletedAt == now && deletedAfterEmpty[0].collectionConfirmedBySync == nil)
         let legacyDuplicates = ParcelIdentity.coalescing([same, merged[0]])
         precondition(legacyDuplicates.count == 1 && legacyDuplicates[0].pickupCredentials.count == 2)
         var matchingCollected = first[0]

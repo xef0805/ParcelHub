@@ -71,7 +71,7 @@ test('按手机号未查到包裹不能当作加载中或账号完整空清单�
   assert.equal(read('请重新登录\n待取件\n未查到100****0000的包裹').state, 'login_required');
 });
 
-test('取完后连续两次确认手机号空清单，移出淘宝旧件并保留其他来源、短信和历史', () => {
+test('取完后连续两次确认手机号空清单，将淘宝旧件归档并保留其他来源、短信和历史', () => {
   const original = mergeOfficialSnapshot({version:1,customProviders:[],parcels:[]}, JSON.parse(JSON.stringify(read(page))));
   const example = original.parcels[0];
   original.parcels[0].smsOriginal = '虚构短信原文';
@@ -92,7 +92,8 @@ test('取完后连续两次确认手机号空清单，移出淘宝旧件并保�
   assert.deepEqual(filterParcels(updated,[]).map(p=>p.id).sort(),['other-source','sms-only']);
   assert.equal(updated.parcels.length,original.parcels.length);
   assert.equal(updated.parcels.find(p=>p.id===example.id).smsOriginal,'虚构短信原文');
-  assert.equal(filterParcels(updated,[],{collected:true}).length,1);
+  assert.equal(filterParcels(updated,[],{collected:true}).length,3);
+  assert.ok(updated.parcels.find(p=>p.id===example.id).collectionConfirmedBySync);
   assert.equal(original.parcels[0].inLatestOfficialSnapshot,true);
 });
 
@@ -113,13 +114,14 @@ test('官方读取可合并已有手动记录，保留原记录标识和前导�
   assert.equal(merged.parcels.every(p => p.source === 'taobao-web' && p.providerID === 'taobao'), true);
   assert.equal(original.parcels[0].pickupCode, 'old');
 });
-test('本次清单不再出现的记录只移出当前快照，不伪造已取状态', () => {
+test('完整清单不再出现的淘宝记录自动标记已取，并注明时间来自同步确认', () => {
   const first = mergeOfficialSnapshot(demoState(), JSON.parse(JSON.stringify(read(page))));
   const empty = JSON.parse(JSON.stringify(read('待取件\n0\n暂无待取包裹\n还有包裹未显示？查询取件码')));
   const next = mergeOfficialSnapshot(first, empty);
   const official = next.parcels.filter(p => p.source === 'taobao-web');
   assert.equal(official.length, 2);
-  assert.equal(official.every(p => p.inLatestOfficialSnapshot === false && p.collectedAt === null), true);
+  assert.equal(official.every(p => p.inLatestOfficialSnapshot === false && p.collectedAt && p.collectionConfirmedBySync === true), true);
+  assert.equal(filterParcels(next,[],{collected:true}).length,2);
   assert.throws(() => mergeOfficialSnapshot(first, { state: 'error' }), /未完整读取/);
 });
 
@@ -153,7 +155,7 @@ test('空快照只处理该官方来源，保留手动与其他来源和已取�
   const empty = JSON.parse(JSON.stringify(read('待取件\n0\n暂无待取件')));
   const next = mergeOfficialSnapshot(first, empty);
   assert.deepEqual(filterParcels(next, []).map(p => p.id).sort(), ['jd', 'manual']);
-  assert.equal(filterParcels(next, [], { collected: true }).length, 1);
+  assert.equal(filterParcels(next, [], { collected: true }).length, 2);
   assert.equal(first.parcels.find(p => p.id === manual.id).inLatestOfficialSnapshot, true);
 });
 

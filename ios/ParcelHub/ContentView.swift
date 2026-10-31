@@ -17,7 +17,7 @@ struct AppMessage: View {
         let patterns = [
             ("^已同步 · 新增 ([0-9]+) 件$", "Synced · $1 new pickups"),
             ("^已同步 ([0-9]+) 件待取包裹$", "$1 pickups synced"),
-            ("^待取已清空 · 移出 ([0-9]+) 件$", "No pickups · $1 entries removed"),
+            ("^已归档 ([0-9]+) 件$", "$1 archived"),
             ("^沿用(.+)上次地点，请核对$", "Using the last $1 location. Please check"),
             ("^返回后确认：刚才是否进入了(.+)？$", "After returning, confirm: did $1 open?")
         ]
@@ -96,10 +96,11 @@ struct BrandMark: View {
 
 struct UpdateStamp: View {
     let date: Date
+    var label: LocalizedStringKey = "更新"
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "clock")
-            Text("更新")
+            Text(label)
             if !Calendar.current.isDateInToday(date) { Text(date, format: .dateTime.month().day()) }
             Text(date, format: .dateTime.hour().minute())
         }.font(.caption2).foregroundStyle(.secondary)
@@ -345,7 +346,9 @@ struct ParcelCard: View {
             if parcel.isCollected && parcel.hasSMS {
                 Button { showingSMS = true } label: { Label("短信身份码", systemImage: "message").font(.caption.weight(.medium)) }
             }
-            if let date = parcel.lastReadAt {
+            if parcel.isCollected, parcel.collectionConfirmedBySync == true, let date = parcel.collectedAt {
+                HStack { Spacer(minLength: 0); UpdateStamp(date: date, label: "同步确认已取") }.padding(.top, 2)
+            } else if let date = parcel.lastReadAt {
                 HStack { Spacer(minLength: 0); UpdateStamp(date: date) }.padding(.top, 2)
             }
         }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
@@ -368,6 +371,7 @@ struct CredentialPickerView: View {
     @State private var selected: PickupProvider?
     @State private var launchError: String?
     @State private var launching = false
+    @State private var sorting = false
     var body: some View {
         NavigationStack {
             List {
@@ -382,6 +386,7 @@ struct CredentialPickerView: View {
                 Section {
                     ForEach(store.credentialProviders) { provider in
                         Button {
+                            guard !sorting else { return }
                             if let station { store.rememberCredential(provider.id, for: station) }
                             store.preferCredential(provider.id)
                             if let onChoose { onChoose(provider) }
@@ -409,17 +414,31 @@ struct CredentialPickerView: View {
                             .contextMenu {
                                 if !["taobao", "sms"].contains(provider.id) { Button("管理小程序绑定") { launchError = nil; selected = provider } }
                             }
-                    }
+                    }.onMove(perform: store.moveProviders).moveDisabled(!sorting)
                 }
                 if launching {
                     Section { ProgressView("正在打开小程序…").font(.caption) }
                 }
+                if station == nil {
+                    HStack {
+                        Spacer()
+                        Button {
+                            withAnimation { sorting.toggle() }
+                        } label: {
+                            Label(LocalizedStringKey(sorting ? "完成" : "排序"), systemImage: sorting ? "checkmark" : "arrow.up.arrow.down")
+                                .font(.caption).foregroundStyle(.secondary).padding(12)
+                        }.buttonStyle(PressFeedbackStyle()).disabled(launching)
+                    }.listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                }
             }.listStyle(.insetGrouped).listSectionSpacing(16)
+                .environment(\.editMode, .constant(sorting ? .active : .inactive))
                 .navigationTitle("身份码").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if showsDone { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
                 }
                 .fullScreenCover(item: $selected) { PickupEntryView(provider: $0, initialError: launchError) }
+                .onDisappear { sorting = false }
         }
     }
 }
@@ -576,6 +595,7 @@ struct MyView: View {
 struct CollectedParcelsView: View {
     @EnvironmentObject private var store: ParcelStore
     @State private var search = ""
+    @State private var openDeletionID: UUID?
     private var records: [Parcel] {
         store.collected.filter { search.isEmpty || [$0.title, $0.station, $0.pickupCode, $0.carrier, $0.trackingNumber].joined(separator: " ").localizedCaseInsensitiveContains(search) }
             .sorted { ($0.collectedAt ?? .distantPast) > ($1.collectedAt ?? .distantPast) }
@@ -592,13 +612,9 @@ struct CollectedParcelsView: View {
                     ForEach(Array(Set(daily.map(\.station))).sorted(), id: \.self) { station in
                         Text(station).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                         ForEach(daily.filter { $0.station == station }) { parcel in
-                            ParcelCard(parcel: parcel).listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                            CollectedParcelRow(parcel: parcel, openDeletionID: $openDeletionID)
+                                .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
                                 .listRowBackground(Color.clear).listRowSeparator(.hidden)
-                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                    Button(role: .destructive) { withAnimation { store.deleteCollected(parcel.id) } } label: {
-                                        Image(systemName: "trash.fill")
-                                    }.buttonStyle(.automatic).tint(.red).accessibilityLabel("删除已取记录")
-                                }
                         }
                     }
                 }
@@ -611,6 +627,55 @@ struct CollectedParcelsView: View {
             }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20).padding(.vertical, 10).background(Palette.paper)
         }.background(Palette.paper).navigationTitle("已取记录").navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: search) { _, _ in openDeletionID = nil }
+    }
+}
+
+private struct CollectedParcelRow: View {
+    let parcel: Parcel
+    @Binding var openDeletionID: UUID?
+    @EnvironmentObject private var store: ParcelStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var dragOffset: CGFloat = 0
+    private var isOpen: Bool { openDeletionID == parcel.id }
+    private var offset: CGFloat { min(0, max(-60, (isOpen ? -60 : 0) + dragOffset)) }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            if offset < 0 {
+                Button(role: .destructive) { remove() } label: {
+                    Image(systemName: "trash.fill").font(.system(size: 17))
+                        .foregroundStyle(.white).frame(width: 44, height: 44)
+                        .background(Color.red, in: RoundedRectangle(cornerRadius: 13))
+                }.buttonStyle(PressFeedbackStyle()).padding(.trailing, 6)
+                    .accessibilityLabel("删除已取记录").accessibilityHidden(!isOpen)
+            }
+            ParcelCard(parcel: parcel)
+                .overlay {
+                    if isOpen {
+                        Color.clear.contentShape(Rectangle()).onTapGesture { openDeletionID = nil }
+                    }
+                }
+                .offset(x: offset)
+        }.contentShape(Rectangle()).clipped()
+            // 只响应横向拖动，让纵向滚动及卡片中的按钮继续正常工作。
+            .simultaneousGesture(DragGesture(minimumDistance: 12)
+                .updating($dragOffset) { value, state, _ in
+                    if abs(value.translation.width) > abs(value.translation.height) * 1.25 {
+                        state = value.translation.width
+                    }
+                }
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                    let finalOffset = (isOpen ? -60.0 : 0.0) + value.translation.width
+                    openDeletionID = finalOffset < -28 ? parcel.id : nil
+                })
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isOpen)
+            .accessibilityAction(named: Text("删除已取记录")) { remove() }
+    }
+    private func remove() {
+        openDeletionID = nil
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { store.deleteCollected(parcel.id) }
     }
 }
 
@@ -1053,11 +1118,12 @@ struct OfficialPickupView: View {
             .onChange(of: page) { _, _ in session.load(pageURL) }
             .onChange(of: session.readResult) { _, result in
                 guard let result, result.state == "ready" else { return }
-                let previousCount = store.pending.filter { ["cainiao-web", "taobao-web"].contains($0.source ?? "") }.count
+                let previousCount = store.collected.count
                 if let error = store.importOfficial(result) {
                     session.status = error; session.hasError = true
                 } else if result.parcels.isEmpty {
-                    session.status = "待取已清空 · 移出 \(previousCount) 件"
+                    let archivedCount = max(0, store.collected.count - previousCount)
+                    session.status = archivedCount > 0 ? "已归档 \(archivedCount) 件" : "已同步淘宝"
                 } else {
                     session.status = "已同步 \(result.parcels.count) 件待取包裹"
                 }
