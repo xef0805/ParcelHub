@@ -121,7 +121,7 @@ final class ParcelStore: ObservableObject {
     }
 
     func add(title: String, providerID: String, station: String, code: String, carrier: String, trackingNumber: String,
-             source: String = "manual", smsOriginal: String? = nil, smsSender: String? = nil) -> String? {
+             source: String = "manual", smsOriginal: String? = nil, smsSender: String? = nil, arrivalDate: Date? = nil) -> String? {
         lastImportWasDuplicate = false
         if storageWarning != nil { return "本地数据异常，暂时无法保存新记录" }
         if let error = ParcelDraftValidator.validate(title: title, station: station, code: code, providerID: providerID, providers: providers) { return error }
@@ -129,6 +129,11 @@ final class ParcelStore: ObservableObject {
         var incoming = Parcel(id: UUID(), title: title.trimmingCharacters(in: .whitespacesAndNewlines), providerID: providerID,
             station: station.trimmingCharacters(in: .whitespacesAndNewlines), pickupCode: code.trimmingCharacters(in: .whitespacesAndNewlines),
             carrier: carrier.trimmingCharacters(in: .whitespacesAndNewlines), trackingNumber: ParcelIdentity.text(trackingNumber), addedAt: now, isDemo: false, source: source)
+        if let date = arrivalDate ?? (source == "sms" ? now : nil) {
+            let day = ParcelArrival.day(for: date)
+            guard ParcelArrival.isSelectable(day, now: now) else { return "到站日期仅支持今天及前7天" }
+            incoming.arrivedOn = day
+        }
         if let smsOriginal, !smsOriginal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard smsOriginal.count <= 8000 else { return "短信内容过长，请只粘贴本条取件通知" }
             incoming.smsOriginal = smsOriginal
@@ -146,15 +151,20 @@ final class ParcelStore: ObservableObject {
                     parcels[index].providerID = providerID; parcels[index].source = source
                 }
                 if incoming.hasSMS && ParcelIdentity.text(incoming.smsOriginal ?? "") != ParcelIdentity.text(parcels[index].smsOriginal ?? "") {
-                    if !parcels[index].hasSMS { parcels[index].title = incoming.title }
                     parcels[index].smsOriginal = incoming.smsOriginal; parcels[index].smsSender = incoming.smsSender; parcels[index].smsImportedAt = now
                     parcels[index].smsFingerprint = incoming.smsFingerprint
                 }
                 if parcels[index].trackingNumber.isEmpty { parcels[index].trackingNumber = incoming.trackingNumber }
                 if parcels[index].carrier.isEmpty { parcels[index].carrier = incoming.carrier }
+                if parcels[index].arrivedOn == nil { parcels[index].arrivedOn = incoming.arrivedOn }
                 parcels[index].attach(ParcelCredential(providerID: providerID, station: incoming.station, pickupCode: incoming.pickupCode,
                                                        source: source, isCurrent: true, lastSeenAt: now))
-            } else { parcels.insert(incoming, at: 0) }
+            } else {
+                if incoming.title.range(of: "^[0-9]{4}包裹[0-9]+号$", options: .regularExpression) != nil {
+                    incoming.title = ParcelNaming.nextTitle(in: parcels, date: now)
+                }
+                parcels.insert(incoming, at: 0)
+            }
             persistParcels()
             return storageWarning
         } catch { return error.localizedDescription }

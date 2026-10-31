@@ -379,7 +379,12 @@
 "先试开再绑定，链接失效时重新获取。" = "Test before binding. Get a new link if it expires";
 "以兔喜为例，其他平台菜单可能不同。" = "Tuxi example. Other platforms may use different menus";
 "复制网址后返回粘贴，无需添加到主屏幕。" = "Copy the URL and return to paste. No need to add it to the Home Screen";
+"到站日期" = "Arrival date";
+"可选今天及前7天" = "Today or the previous 7 days";
+"到站日期仅支持今天及前7天" = "Choose today or one of the previous 7 days";
 "更新" = "Updated";
+"今日到站" = "Arrived today";
+"%lld日前到站" = "Arrived %lldd ago";
 "同步确认已取" = "Collection confirmed by sync";
 "下拉刷新" = "Pull to refresh";
 "按驿站要求选码，短信件用短信码" = "Use your station’s pass, or SMS for SMS parcels";

@@ -32,6 +32,7 @@ struct Parcel: Codable, Identifiable {
     var awaitingArrival: Bool? = nil
     var manualPendingOverride: Bool? = nil
     var collectionConfirmedBySync: Bool? = nil
+    var arrivedOn: String? = nil
 
     var isCollected: Bool { collectedAt != nil }
     var hasSMS: Bool { !(smsOriginal ?? "").isEmpty }
@@ -103,6 +104,9 @@ enum ParcelIdentity {
                 for credential in parcel.pickupCredentials { result[index].attach(credential) }
                 result[index].addedAt = min(result[index].addedAt, parcel.addedAt)
                 result[index].awaitingArrival = (result[index].awaitingArrival == true && parcel.awaitingArrival == true)
+                if result[index].arrivedOn == nil && text(result[index].station) == text(parcel.station) {
+                    result[index].arrivedOn = parcel.arrivedOn
+                }
                 if let date = parcel.collectedAt, date >= (result[index].collectedAt ?? .distantPast) {
                     result[index].collectedAt = date
                     result[index].collectionConfirmedBySync = parcel.collectionConfirmedBySync
@@ -151,6 +155,67 @@ struct OfficialParcelRead: Codable, Equatable {
     var pickupCode: String
     var carrier: String
     var trackingNumber: String
+    var arrivalDaysAgo: Int? = nil
+}
+
+enum ParcelArrival {
+    private static func formatter(calendar: Calendar) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
+    }
+
+    static func day(for date: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> String {
+        formatter(calendar: calendar).string(from: date)
+    }
+
+    static func isSelectable(_ day: String, now: Date = Date(), calendar: Calendar = Calendar(identifier: .gregorian)) -> Bool {
+        guard let days = daysAgo(on: day, now: now, calendar: calendar) else { return false }
+        return days <= 7
+    }
+
+    static func day(daysAgo: Int?, readAt: String, calendar: Calendar = Calendar(identifier: .gregorian)) -> String? {
+        guard let daysAgo, (0...3650).contains(daysAgo) else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = iso.date(from: readAt)
+        iso.formatOptions = [.withInternetDateTime]
+        guard let readDate = fractional ?? iso.date(from: readAt),
+              let arrival = calendar.date(byAdding: .day, value: -daysAgo, to: readDate) else { return nil }
+        return formatter(calendar: calendar).string(from: arrival)
+    }
+
+    static func daysAgo(on day: String?, now: Date = Date(), calendar: Calendar = Calendar(identifier: .gregorian)) -> Int? {
+        guard let day, day.count == 10 else { return nil }
+        let format = formatter(calendar: calendar)
+        guard let date = format.date(from: day), format.string(from: date) == day,
+              let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day,
+              days >= 0 else { return nil }
+        return days
+    }
+}
+
+enum ParcelNaming {
+    static func nextTitle(in parcels: [Parcel], date: Date = Date()) -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        let day = ParcelArrival.day(for: date, calendar: calendar)
+        let compact = day.replacingOccurrences(of: "-", with: "")
+        let short = String(compact.suffix(4))
+        var next = 1
+        for parcel in parcels where !parcel.isDemo && calendar.component(.year, from: parcel.addedAt) == calendar.component(.year, from: date) {
+            let prefix = [compact, day + " ", short].first { parcel.title.hasPrefix($0) }
+            guard let prefix else { continue }
+            let suffix = String(parcel.title.dropFirst(prefix.count))
+            guard suffix.range(of: "^(?:包裹|快件)[0-9]+号$", options: .regularExpression) != nil,
+                  let serial = Int(suffix.dropFirst(2).dropLast()), serial < Int.max else { continue }
+            next = max(next, serial + 1)
+        }
+        return "\(short)包裹\(next)号"
+    }
 }
 
 struct OfficialPageRead: Codable, Equatable {

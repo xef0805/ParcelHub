@@ -51,11 +51,11 @@
   for (let i = 0; i < content.length; i++) {
     const code = content[i].match(codePattern);
     if (!code) continue;
-    let carrier = null;
+    let carrier = null, carrierIndex = i;
     for (let j = i + 1; j < Math.min(content.length, i + 15); j++) {
       if (codePattern.test(content[j])) break;
       const match = content[j].match(carrierPattern);
-      if (match) { carrier = match; break; }
+      if (match) { carrier = match; carrierIndex = j; break; }
     }
     // 取件码与运单号必须属于同一卡片，禁止把不完整解析当作完整同步。
     if (!carrier) return result('error', '包裹卡片结构发生变化，未导入部分结果');
@@ -66,8 +66,17 @@
       }
     }
     if (!station) return result('error', '未能确认实际取件地点，暂不导入');
+    // 只读取本卡片取件码与运单之间的到站信息，不借用相邻包裹的日期。
+    const arrivalAges = content.slice(i + 1, carrierIndex).flatMap(line => {
+      if (/^(?:今日|今天)到站$/.test(line)) return [0];
+      if (/^(?:昨日|昨天)到站$/.test(line)) return [1];
+      const age = line.match(/^已到(?:站)?\s*(\d+)\s*天$/) || line.match(/^(\d+)\s*(?:日|天)前到站$/);
+      return age && Number(age[1]) <= 3650 ? [Number(age[1])] : [];
+    });
+    const ages = [...new Set(arrivalAges)];
     entries.push({ providerID: 'cainiao', title: carrier[1] + '包裹', station,
-      pickupCode: code[1], carrier: carrier[1], trackingNumber: carrier[2] });
+      pickupCode: code[1], carrier: carrier[1], trackingNumber: carrier[2],
+      ...(ages.length === 1 ? { arrivalDaysAgo: ages[0] } : {}) });
   }
   const keys = entries.map(p => p.carrier + ':' + p.trackingNumber.toUpperCase());
   if (new Set(keys).size !== keys.length || entries.length !== expectedCount) {

@@ -11,7 +11,7 @@
 5. 成功后在 Summary 页面向下滚到 Artifacts，点击 ParcelHub-unsigned-iphone 下载 ZIP。也可以点击顶部 Artifacts 下的数量跳转。
 6. 解压 ZIP 得到 ParcelHub-unsigned.ipa；IPA 本身不需要继续解压。安装包目前保留 3 天。
 
-当前源码版本为 0.7.6（build 13），仍需按上方步骤手动触发编译。工程、编译方案和安装包文件名继续使用 ParcelHub，以保持覆盖更新兼容；安装后的应用显示名为“涂涂取件”。
+当前源码版本为 0.7.7（build 14），按上方步骤手动触发编译。工程、编译方案和安装包文件名继续使用 ParcelHub，以保持覆盖更新兼容；安装后的应用显示名为“涂涂取件”。
 
 ## 安装到自己的 iPhone
 

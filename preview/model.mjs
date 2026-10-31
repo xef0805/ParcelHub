@@ -1,5 +1,34 @@
 export const STORAGE_KEY = 'parcelhub.preview.v1';
 export const DEFAULT_PROVIDER_IDS = ['taobao', 'tuxi', 'yishoufa', 'fcbox', 'sms'];
+
+export function arrivalDay(daysAgo, readAt) {
+  if(!Number.isInteger(daysAgo)||daysAgo<0||daysAgo>3650||typeof readAt!=='string')return null;
+  const date=new Date(readAt);if(!Number.isFinite(date.getTime()))return null;
+  date.setDate(date.getDate()-daysAgo);
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+export function arrivalAge(day, now=new Date()) {
+  if(typeof day!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(now.getTime()))return null;
+  const date=new Date(day+'T00:00:00.000Z');
+  if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==day)return null;
+  // 比较日历日期，避免夏令时的 23/25 小时日造成天数误差。
+  const days=Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-date.getTime())/86400000);
+  return days>=0?days:null;
+}
+export function arrivalLabel(day, now=new Date(), language='zh-Hans') {
+  const days=arrivalAge(day,now);if(days===null)return '';
+  return language==='en'?(days===0?'Arrived today':`Arrived ${days}d ago`):(days===0?'今日到站':`${days}日前到站`);
+}
+export function nextParcelTitle(parcels, date=new Date()) {
+  const day=arrivalDay(0,date.toISOString()),compact=day.replaceAll('-',''),short=compact.slice(4);
+  let serial=1;
+  for(const parcel of parcels.filter(p=>!p.isDemo&&new Date(p.addedAt).getFullYear()===date.getFullYear())){
+    const title=String(parcel.title||''),prefix=[compact,day+' ',short].find(p=>title.startsWith(p));
+    const match=prefix&&title.slice(prefix.length).match(/^(?:包裹|快件)(\d+)号$/);
+    if(match&&Number.isSafeInteger(Number(match[1])+1))serial=Math.max(serial,Number(match[1])+1);
+  }
+  return `${short}包裹${serial}号`;
+}
 export function credentialProviders(state, catalog) {
   return orderedProviders(catalog, [], state.providerOrderIDs || []).filter(p => DEFAULT_PROVIDER_IDS.includes(p.id));
 }
@@ -122,6 +151,7 @@ export function coalesceParcels(records) {
     let merged=result[index];for(const credential of pickupCredentials(p))merged=attachCredential(merged,credential);
     merged.addedAt=Date.parse(merged.addedAt)<Date.parse(p.addedAt)?merged.addedAt:p.addedAt;
     merged.awaitingArrival=merged.awaitingArrival===true&&p.awaitingArrival===true;
+    if(!merged.arrivedOn&&identityText(merged.station)===identityText(p.station))merged.arrivedOn=p.arrivedOn;
     if(p.collectedAt&&(!merged.collectedAt||Date.parse(p.collectedAt)>=Date.parse(merged.collectedAt))){merged.collectedAt=p.collectedAt;merged.collectionConfirmedBySync=p.collectionConfirmedBySync;}
     merged.manualPendingOverride=merged.manualPendingOverride===true||p.manualPendingOverride===true?true:null;
     merged.deletedAt=merged.deletedAt||p.deletedAt;
@@ -135,15 +165,21 @@ export function addParcel(state, input, providers) {
   const error=validateParcel(input,providers,state.parcels);if(error)throw new Error(error);
   if(input.smsOriginal?.length>8000)throw new Error('短信内容过长，请只粘贴本条取件通知');
   const now=new Date().toISOString();
+  const arrivedOn=input.arrivedOn??(input.source==='sms'?arrivalDay(0,now):null);
+  if(arrivedOn!==null&&(arrivalAge(arrivedOn)===null||arrivalAge(arrivedOn)>7))throw new Error('到站日期仅支持今天及前7天');
   const parcel={id:crypto.randomUUID(),title:clean(input.title),station:clean(input.station),pickupCode:clean(input.pickupCode),providerID:input.providerID,
+    arrivedOn,
     carrier:clean(input.carrier),trackingNumber:identityText(input.trackingNumber),addedAt:now,collectedAt:null,isDemo:false,source:input.source==='sms'?'sms':'manual',
     ...(input.smsOriginal?.trim()?{smsOriginal:input.smsOriginal,smsSender:clean(input.smsSender)||clean(input.carrier)||'取件通知',smsImportedAt:now,smsFingerprint:smsFingerprint(input.smsOriginal)}:{})};
   const parcels=coalesceParcels(state.parcels),index=matchParcel(parcel,parcels);
-  if(index<0)parcels.unshift(parcel);else{
+  if(index<0){
+    if(/^\d{4}包裹\d+号$/.test(parcel.title))parcel.title=nextParcelTitle(parcels,new Date(now));
+    parcels.unshift(parcel);
+  }else{
     const previous=parcels[index];if(previous.deletedAt)throw new Error('该包裹的已取记录已删除，不会重复导入');
-    let merged={...previous,trackingNumber:previous.trackingNumber||parcel.trackingNumber,carrier:previous.carrier||parcel.carrier};
+    let merged={...previous,trackingNumber:previous.trackingNumber||parcel.trackingNumber,carrier:previous.carrier||parcel.carrier,arrivedOn:previous.arrivedOn||parcel.arrivedOn};
     if(previous.awaitingArrival===true)Object.assign(merged,{awaitingArrival:false,station:parcel.station,pickupCode:parcel.pickupCode,providerID:parcel.providerID,source:parcel.source});
-    if(parcel.smsOriginal&&identityText(parcel.smsOriginal)!==identityText(previous.smsOriginal))Object.assign(merged,{title:previous.smsOriginal?previous.title:parcel.title,smsOriginal:parcel.smsOriginal,smsSender:parcel.smsSender,smsImportedAt:now,smsFingerprint:parcel.smsFingerprint});
+    if(parcel.smsOriginal&&identityText(parcel.smsOriginal)!==identityText(previous.smsOriginal))Object.assign(merged,{smsOriginal:parcel.smsOriginal,smsSender:parcel.smsSender,smsImportedAt:now,smsFingerprint:parcel.smsFingerprint});
     parcels[index]=attachCredential(merged,{providerID:parcel.providerID,station:parcel.station,pickupCode:parcel.pickupCode,source:parcel.source,isCurrent:true,lastSeenAt:now});
   }
   return {...state,parcels,lastImportWasDuplicate:index>=0};
@@ -194,7 +230,7 @@ export function validateSavedState(value, catalog) {
     if (!p || !['id', 'title', 'station', 'pickupCode', 'carrier', 'trackingNumber', 'addedAt'].every(k => typeof p[k] === 'string') ||
         !ids.has(p.providerID) || typeof p.isDemo !== 'boolean' || parcelIDs.has(p.id) ||
         !(p.collectedAt === null || typeof p.collectedAt === 'string')) throw new Error('包裹记录损坏');
-    for (const key of ['smsOriginal','smsSender','smsImportedAt','smsFingerprint','deletedAt']) {
+    for (const key of ['smsOriginal','smsSender','smsImportedAt','smsFingerprint','deletedAt','arrivedOn']) {
       if (p[key] !== undefined && p[key] !== null && typeof p[key] !== 'string') throw new Error('短信记录损坏');
     }
     if(p.awaitingArrival!==undefined&&p.awaitingArrival!==null&&typeof p.awaitingArrival!=='boolean')throw new Error('包裹状态损坏');
@@ -219,12 +255,16 @@ export function mergeOfficialSnapshot(state, snapshot) {
   }
   const keys=rows.map(p=>canonicalCarrier(p.carrier)+':'+identityText(p.trackingNumber));
   if(new Set(keys).size!==keys.length)throw new Error('官方记录出现重复，未更新');
+  const importedAt=new Date().toISOString();
   const parcels=coalesceParcels(state.parcels).map(p=>({...p,
     ...(['taobao-web','cainiao-web'].includes(p.source)?{inLatestOfficialSnapshot:false}:{}),
     credentials:pickupCredentials(p).map(c=>['taobao-web','cainiao-web'].includes(c.source)?{...c,isCurrent:false}:{...c})}));
   for(const row of rows){
     const index=matchParcel(row,parcels,Date.parse(snapshot.readAt)||Date.now()),previous=index>=0?parcels[index]:null;
-    let incoming={...previous,...row,title:previous?.title||row.title,id:previous?.id||crypto.randomUUID(),addedAt:previous?.addedAt||snapshot.readAt,collectedAt:previous?.collectedAt||null,isDemo:false,
+    const shouldName=!previous||(['taobao-web','cainiao-web'].includes(previous.source)&&previous.title===row.title&&!previous.smsOriginal);
+    const title=shouldName?nextParcelTitle(parcels,new Date(previous?.addedAt||importedAt)):previous.title;
+    let incoming={...previous,...row,title,id:previous?.id||crypto.randomUUID(),addedAt:previous?.addedAt||importedAt,collectedAt:previous?.collectedAt||null,isDemo:false,
+      arrivedOn:arrivalDay(row.arrivalDaysAgo,snapshot.readAt)||(identityText(previous?.station)===identityText(row.station)?previous?.arrivedOn:null),
       providerID:'taobao',source:'taobao-web',lastReadAt:snapshot.readAt,inLatestOfficialSnapshot:true,awaitingArrival:false};
     incoming=attachCredential(incoming,{providerID:'taobao',station:row.station,pickupCode:row.pickupCode,source:'taobao-web',isCurrent:true,lastSeenAt:snapshot.readAt});
     if(index>=0)parcels[index]=incoming;else parcels.unshift(incoming);

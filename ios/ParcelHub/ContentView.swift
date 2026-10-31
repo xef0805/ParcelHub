@@ -150,6 +150,8 @@ struct PackagesView: View {
     @State private var launchError: String?
     @State private var showingOfficialLogin = false
     @State private var providerAfterBinding: PickupProvider?
+    @ScaledMetric(relativeTo: .body) private var summaryHeight: CGFloat = 140
+    @ScaledMetric(relativeTo: .body) private var importHeight: CGFloat = 96
 
     private var displayed: [Parcel] {
         let source = store.pending
@@ -185,40 +187,38 @@ struct PackagesView: View {
                         }
                     }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 16))
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .center, spacing: 18) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("\(store.pending.count)").font(.system(size: 38, weight: .semibold, design: .rounded))
-                                Text("件待取包裹").font(.subheadline.weight(.semibold))
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                            Rectangle().fill(.white.opacity(0.25)).frame(width: 1, height: 50)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("\(store.watching.count)").font(.system(size: 38, weight: .semibold, design: .rounded))
-                                Text("件在路上").font(.subheadline.weight(.semibold))
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        Text("\(Set(store.pending.map(\.station)).count) 个取件地点").font(.caption).opacity(0.85)
-                    }.foregroundStyle(.white).padding(22).frame(maxWidth: .infinity, minHeight: 114, alignment: .leading)
-                        .background(Color(red: 0.10, green: 0.35, blue: 0.82).gradient, in: RoundedRectangle(cornerRadius: 23))
-                    HStack(spacing: 12) {
-                        Button { packageImportRequest = PackageImportRequest(kind: "sms") } label: {
-                            Label("手动导入包裹", systemImage: "text.bubble").font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 50)
-                                .background(Palette.card, in: RoundedRectangle(cornerRadius: 15))
-                        }
-                    }.buttonStyle(PressFeedbackStyle())
-                    if launching { ProgressView("正在打开小程序…").font(.caption) }
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            if sync.isRefreshing { ProgressView().controlSize(.small) }
-                            else { Image(systemName: sync.needsLogin ? "person.crop.circle.badge.exclamationmark" : "arrow.triangle.2.circlepath") }
-                            AppMessage(sync.status).lineLimit(2)
-                            Spacer(minLength: 0)
+                        GeometryReader { geometry in
+                            let availableWidth = max(0, geometry.size.width - 12)
+                            HStack(alignment: .bottom, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("\(store.pending.count)").font(.system(size: 44, weight: .semibold, design: .rounded))
+                                    Text("件待取包裹").font(.system(size: 18, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                                    Text("\(Set(store.pending.map(\.station)).count) 个取件地点").font(.subheadline).opacity(0.85)
+                                }.foregroundStyle(.white).padding(16)
+                                    .frame(width: availableWidth * 0.6, height: summaryHeight, alignment: .leading)
+                                    .background(Color(red: 0.10, green: 0.35, blue: 0.82).gradient, in: RoundedRectangle(cornerRadius: 23))
+                                Button { packageImportRequest = PackageImportRequest(kind: "sms") } label: {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "text.bubble").font(.system(size: 26))
+                                        Text("手动导入包裹").font(.system(size: 14, weight: .medium)).multilineTextAlignment(.center)
+                                    }.foregroundStyle(Palette.blue).padding(10).frame(width: availableWidth * 0.4, height: importHeight)
+                                        .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
+                                }.buttonStyle(PressFeedbackStyle())
+                            }
+                        }.frame(height: summaryHeight)
+                        if launching { ProgressView("正在打开小程序…").font(.caption) }
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                if sync.isRefreshing { ProgressView().controlSize(.small) }
+                                else { Image(systemName: sync.needsLogin ? "person.crop.circle.badge.exclamationmark" : "arrow.triangle.2.circlepath") }
+                                AppMessage(sync.status).lineLimit(2)
+                                Spacer(minLength: 8)
+                                if let updated = store.lastOfficialReadAt { UpdateStamp(date: updated).fixedSize() }
+                            }
                             if sync.needsLogin { Button("重新登录淘宝") { showingOfficialLogin = true }.font(.caption.weight(.semibold)) }
-                        }
-                        if let updated = store.lastOfficialReadAt {
-                            HStack { UpdateStamp(date: updated); Spacer(); Text("下拉刷新").font(.caption2) }
-                        }
-                    }.font(.caption).foregroundStyle(.secondary)
+                        }.font(.caption).foregroundStyle(.secondary)
+                    }
                     Text("待取清单").font(.title2.bold())
                     if displayed.isEmpty {
                         ContentUnavailableView(LocalizedStringKey(search.isEmpty ? "暂无本地待取包裹" : "没有匹配的记录"), systemImage: "shippingbox", description: Text(LocalizedStringKey(search.isEmpty ? "登录淘宝后在前台自动检查；短信件可点“手动导入包裹”。" : "试试其他取件码、快递公司或地点。")))
@@ -295,65 +295,73 @@ struct ParcelCard: View {
     @State private var copiedTracking = false
     @State private var showingSMS = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
                 if let asset = CarrierBrand.asset(for: parcel.carrier) {
-                    BrandMark(asset: asset, fallback: "shippingbox", label: parcel.carrier)
-                } else if let provider = store.provider(parcel.providerID) { ProviderMark(provider: provider) }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(parcel.title).font(.headline)
+                    BrandMark(asset: asset, fallback: "shippingbox", label: parcel.carrier, size: 40)
+                } else if let provider = store.provider(parcel.providerID) { ProviderMark(provider: provider, size: 40) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(parcel.title).font(.system(size: 16, weight: .semibold)).lineLimit(2)
                     HStack(spacing: 3) {
-                        Text(parcel.carrier.isEmpty ? "快递" : parcel.carrier)
-                        Text(verbatim: "·")
-                        Text(LocalizedStringKey(parcel.source == "sms" ? "短信导入" : store.provider(parcel.providerID)?.name ?? "本地"))
+                        Text(parcel.carrier.isEmpty ? "快递" : parcel.carrier).lineLimit(1).fixedSize()
+                        if !parcel.trackingNumber.isEmpty {
+                            Text(verbatim: "·")
+                            Text(parcel.trackingNumber).font(.system(.caption2, design: .monospaced))
+                                .lineLimit(1).truncationMode(.middle).textSelection(.enabled).layoutPriority(-1)
+                            Button {
+                                UIPasteboard.general.string = parcel.trackingNumber; clipboard.ignoreCurrentChange(); copiedTracking = true
+                            } label: {
+                                Image(systemName: copiedTracking ? "checkmark" : "doc.on.doc").font(.caption2)
+                                    .frame(width: 26, height: 24).contentShape(Rectangle())
+                            }.accessibilityLabel("复制运单号")
+                        }
                     }.font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
+                }.frame(maxWidth: .infinity, alignment: .leading)
                 Button { store.toggleCollected(parcel) } label: {
                     Text(LocalizedStringKey(parcel.isCollected ? "恢复待取" : "我已取件"))
                         .font(.caption.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 40)
                         .background(Palette.blue.opacity(0.10), in: Capsule())
                 }.accessibilityLabel(parcel.isCollected ? "恢复待取" : "我已取件")
             }
-            HStack {
-                Text(parcel.pickupCode).font(.system(size: 28, weight: .semibold, design: .monospaced)).textSelection(.enabled)
-                    .minimumScaleFactor(0.6).lineLimit(1)
-                Spacer()
-                if !parcel.isCollected {
-                    Button(LocalizedStringKey(copied ? "已复制" : "复制")) {
-                        UIPasteboard.general.string = parcel.pickupCode; clipboard.ignoreCurrentChange(); copied = true
-                    }.font(.caption)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(parcel.pickupCode).font(.system(size: 28, weight: .semibold, design: .monospaced)).textSelection(.enabled)
+                        .minimumScaleFactor(0.6).lineLimit(1)
+                    if ParcelArrival.daysAgo(on: parcel.arrivedOn) != nil { ArrivalStamp(day: parcel.arrivedOn) }
                 }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    if !parcel.isCollected {
+                        Button(LocalizedStringKey(copied ? "已复制" : "复制")) {
+                            UIPasteboard.general.string = parcel.pickupCode; clipboard.ignoreCurrentChange(); copied = true
+                        }.font(.caption).frame(minHeight: 24)
+                    } else if parcel.hasSMS {
+                        Button { showingSMS = true } label: {
+                            Image(systemName: "message").font(.caption).frame(width: 28, height: 24)
+                        }.accessibilityLabel("短信身份码")
+                    }
+                }.fixedSize().padding(.top, 4)
             }
             let alternatives = parcel.pickupCredentials.filter { $0.isCurrent && !$0.pickupCode.isEmpty && $0.pickupCode != parcel.pickupCode }
             ForEach(Array(alternatives.enumerated()), id: \.offset) { _, credential in
                 Text("\(store.provider(credential.providerID)?.name ?? "其他来源")取件码 · \(credential.pickupCode)")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if !parcel.trackingNumber.isEmpty {
-                HStack(spacing: 5) {
-                    Text("运单号").font(.caption2).foregroundStyle(.secondary)
-                    Text(parcel.trackingNumber).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
-                    Button {
-                        UIPasteboard.general.string = parcel.trackingNumber; clipboard.ignoreCurrentChange(); copiedTracking = true
-                    } label: {
-                        Image(systemName: copiedTracking ? "checkmark" : "doc.on.doc").font(.caption)
-                            .frame(minWidth: 36, minHeight: 36).contentShape(Rectangle())
-                    }.accessibilityLabel("复制运单号")
-                    Spacer(minLength: 0)
-                }
-            }
-            if parcel.isCollected && parcel.hasSMS {
-                Button { showingSMS = true } label: { Label("短信身份码", systemImage: "message").font(.caption.weight(.medium)) }
-            }
-            if parcel.isCollected, parcel.collectionConfirmedBySync == true, let date = parcel.collectedAt {
-                HStack { Spacer(minLength: 0); UpdateStamp(date: date, label: "同步确认已取") }.padding(.top, 2)
-            } else if let date = parcel.lastReadAt {
-                HStack { Spacer(minLength: 0); UpdateStamp(date: date) }.padding(.top, 2)
-            }
-        }.padding(18).background(Palette.card, in: RoundedRectangle(cornerRadius: 22))
+        }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
             .contentShape(Rectangle()).buttonStyle(PressFeedbackStyle())
             .fullScreenCover(isPresented: $showingSMS) { NavigationStack { SMSCredentialView(parcelID: parcel.id) } }
+    }
+}
+
+private struct ArrivalStamp: View {
+    let day: String?
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            if let days = ParcelArrival.daysAgo(on: day, now: context.date) {
+                if days == 0 { Text("今日到站") }
+                else { Text("\(days)日前到站") }
+            }
+        }.font(.caption2).foregroundStyle(.secondary).fixedSize()
     }
 }
 

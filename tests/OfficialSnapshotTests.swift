@@ -3,6 +3,18 @@ import Foundation
 @main
 struct OfficialSnapshotTests {
     static func main() throws {
+        var arrivalCalendar = Calendar(identifier: .gregorian)
+        arrivalCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let arrivalReadAt = "2026-10-31T23:58:00.000Z"
+        precondition(ParcelArrival.day(daysAgo: 2, readAt: arrivalReadAt, calendar: arrivalCalendar) == "2026-10-29")
+        precondition(ParcelArrival.day(daysAgo: -1, readAt: arrivalReadAt, calendar: arrivalCalendar) == nil)
+        precondition(ParcelArrival.day(daysAgo: 1, readAt: "invalid", calendar: arrivalCalendar) == nil)
+        let nextDay = ISO8601DateFormatter().date(from: "2026-11-01T00:01:00Z")!
+        precondition(ParcelArrival.daysAgo(on: "2026-10-31", now: nextDay, calendar: arrivalCalendar) == 1)
+        precondition(ParcelArrival.daysAgo(on: "2026-02-30", now: nextDay, calendar: arrivalCalendar) == nil)
+        precondition(ParcelArrival.daysAgo(on: "2026-11-02", now: nextDay, calendar: arrivalCalendar) == nil)
+        precondition(ParcelArrival.isSelectable("2026-10-25", now: nextDay, calendar: arrivalCalendar))
+        precondition(!ParcelArrival.isSelectable("2026-10-24", now: nextDay, calendar: arrivalCalendar))
         let destination = URL(string: "https://pages-fast.m.taobao.com/wow/z/uniapp/test/home?first=1&second=2")!
         let logout = OfficialAuthenticationFlow.logoutURL(returningTo: destination)!
         precondition(logout.host == "login.m.taobao.com" && logout.path == "/logout.htm")
@@ -21,7 +33,24 @@ struct OfficialSnapshotTests {
         let row = OfficialParcelRead(providerID: "cainiao", title: "测试包裹", station: "测试驿站", pickupCode: "01-02-0003", carrier: "中通", trackingNumber: "TEST00001")
         let snapshot = OfficialPageRead(state: "ready", message: "", parcels: [row], expectedCount: 1, readAt: "test")
         let first = try OfficialSnapshotMerge.applying(snapshot, to: [], now: now)
+        var datedSnapshot = snapshot
+        datedSnapshot.readAt = arrivalReadAt
+        datedSnapshot.parcels[0].arrivalDaysAgo = 2
+        let dated = try OfficialSnapshotMerge.applying(datedSnapshot, to: [], now: now)
+        precondition(dated[0].arrivedOn != nil)
+        let sameStation = try OfficialSnapshotMerge.applying(snapshot, to: dated, now: now)
+        precondition(sameStation[0].arrivedOn == dated[0].arrivedOn)
+        let persistedArrival = try JSONDecoder().decode(Parcel.self, from: JSONEncoder().encode(dated[0]))
+        precondition(persistedArrival.arrivedOn == dated[0].arrivedOn)
+        var movedSnapshot = snapshot
+        movedSnapshot.parcels[0].station = "另一测试驿站"
+        let movedStation = try OfficialSnapshotMerge.applying(movedSnapshot, to: dated, now: now)
+        precondition(movedStation[0].arrivedOn == nil)
         precondition(first.count == 1 && first[0].providerID == "taobao" && first[0].pickupCode == "01-02-0003")
+        precondition(first[0].title.hasSuffix("包裹1号"))
+        precondition(ParcelNaming.nextTitle(in: first, date: now).hasSuffix("包裹2号"))
+        let renamedAgain = try OfficialSnapshotMerge.applying(snapshot, to: first, now: now)
+        precondition(renamedAgain[0].title == first[0].title)
         var watched = Parcel(id: UUID(), title: "单号导入测试", providerID: "manual", station: "", pickupCode: "", carrier: row.carrier,
                              trackingNumber: row.trackingNumber, addedAt: now, isDemo: false, source: "tracking")
         watched.awaitingArrival = true

@@ -53,6 +53,10 @@ struct AddParcelView: View {
     @State private var recognitionNote: String?
     @State private var error: String?
     @State private var showingDuplicateNotice = false
+    @State private var arrivalDate = Date()
+    private var earliestArrival: Date {
+        Calendar(identifier: .gregorian).date(byAdding: .day, value: -7, to: Calendar(identifier: .gregorian).startOfDay(for: Date()))!
+    }
 
     var body: some View {
         NavigationStack {
@@ -82,6 +86,9 @@ struct AddParcelView: View {
                         }
                         field("取件码", placeholder: "必填", value: $code, monospaced: true)
                         field("取件地点", placeholder: "必填，请核对本次地点", value: $station)
+                        DatePicker("到站日期", selection: $arrivalDate, in: earliestArrival...Date(), displayedComponents: .date)
+                            .datePickerStyle(.compact).onChange(of: arrivalDate) { _, _ in error = nil }
+                        Text("可选今天及前7天").font(.caption).foregroundStyle(.secondary)
                         field("包裹名称", placeholder: "按日期自动编号", value: $title)
                         Picker("取件平台", selection: $providerID) {
                             ForEach(store.providers.filter { $0.id != "sms" }) { Text($0.name).tag($0.id) }
@@ -111,7 +118,7 @@ struct AddParcelView: View {
                 } message: { Text("已合并到原包裹，取件状态不变。") }
                 .onAppear {
                     clipboard.isEditing = true
-                    if title.isEmpty { title = SMSDraftReader.read("", history: store.parcels)?.title ?? "" }
+                    if title.isEmpty { title = ParcelNaming.nextTitle(in: store.parcels) }
                     number = initialTrackingNumber; carrier = initialCarrier
                     if !initialSMS.isEmpty { sms = initialSMS }
                 }
@@ -137,7 +144,7 @@ struct AddParcelView: View {
     }
     private func save() {
         error = store.add(title: title, providerID: providerID, station: station, code: code, carrier: carrier, trackingNumber: number,
-                          source: sms.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "manual" : "sms", smsOriginal: sms, smsSender: sender)
+                          source: sms.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "manual" : "sms", smsOriginal: sms, smsSender: sender, arrivalDate: arrivalDate)
         if error == nil {
             if !sms.isEmpty && providerID == "manual" && store.stationCredentials[station] == nil { store.rememberCredential("sms", for: station) }
             if store.lastImportWasDuplicate { showingDuplicateNotice = true }

@@ -31,7 +31,12 @@ enum OfficialSnapshotMerge {
             let index = try ParcelIdentity.match(incoming, in: parcels, now: now)
             var parcel = index.map { parcels[$0] } ?? Parcel(id: UUID(), title: row.title, providerID: "taobao", station: row.station,
                 pickupCode: row.pickupCode, carrier: row.carrier, trackingNumber: row.trackingNumber, addedAt: now, isDemo: false, source: "taobao-web")
+            if index == nil || (["taobao-web", "cainiao-web"].contains(parcel.source ?? "") && parcel.title == row.title && !parcel.hasSMS) {
+                parcel.title = ParcelNaming.nextTitle(in: parcels, date: parcel.addedAt)
+            }
             parcel.providerID = "taobao"
+            parcel.arrivedOn = ParcelArrival.day(daysAgo: row.arrivalDaysAgo, readAt: snapshot.readAt)
+                ?? (ParcelIdentity.text(parcel.station) == ParcelIdentity.text(row.station) ? parcel.arrivedOn : nil)
             parcel.awaitingArrival = false
             parcel.attach(ParcelCredential(providerID: "taobao", station: row.station, pickupCode: row.pickupCode,
                                             source: "taobao-web", isCurrent: true, lastSeenAt: now))
