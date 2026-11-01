@@ -40,6 +40,11 @@ struct OfficialSnapshotTests {
         precondition(dated[0].arrivedOn != nil)
         let sameStation = try OfficialSnapshotMerge.applying(snapshot, to: dated, now: now)
         precondition(sameStation[0].arrivedOn == dated[0].arrivedOn)
+        var staleArrivalSnapshot = datedSnapshot
+        staleArrivalSnapshot.readAt = "2026-11-01T09:00:00.000Z"
+        staleArrivalSnapshot.parcels[0].arrivalDaysAgo = 0
+        let staleArrival = try OfficialSnapshotMerge.applying(staleArrivalSnapshot, to: dated, now: nextDay)
+        precondition(staleArrival[0].arrivedOn == dated[0].arrivedOn)
         let persistedArrival = try JSONDecoder().decode(Parcel.self, from: JSONEncoder().encode(dated[0]))
         precondition(persistedArrival.arrivedOn == dated[0].arrivedOn)
         var movedSnapshot = snapshot

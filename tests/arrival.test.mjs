@@ -25,11 +25,15 @@ test('从各自卡片读取今日与多日前到站信息，不借相邻包裹�
 test('到站日期跨午夜、跨月与跨年按日历计算，非法或未来日期不编造标签', () => {
   assert.equal(arrivalDay(0, observed.toISOString()), '2026-10-31');
   assert.equal(arrivalDay(2, observed.toISOString()), '2026-10-29');
-  assert.equal(arrivalLabel('2026-10-31', new Date(2026, 10, 1, 0, 1)), '1日前到站');
+  assert.equal(arrivalLabel('2026-10-31', new Date(2026, 10, 1, 0, 1)), '昨天到站');
   assert.equal(arrivalLabel('2026-10-31', observed), '今日到站');
-  assert.equal(arrivalLabel('2026-12-31', new Date(2027, 0, 1)), '1日前到站');
-  assert.equal(arrivalLabel('2024-02-29', new Date(2024, 2, 1)), '1日前到站');
-  assert.equal(arrivalLabel('2026-10-29', observed, 'en'), 'Arrived 2d ago');
+  assert.equal(arrivalLabel('2026-12-31', new Date(2027, 0, 1)), '昨天到站');
+  assert.equal(arrivalLabel('2024-02-29', new Date(2024, 2, 1)), '昨天到站');
+  assert.equal(arrivalLabel('2026-10-30', new Date(2026, 10, 1)), '前天到站');
+  assert.equal(arrivalLabel('2026-10-29', new Date(2026, 10, 1)), '已到站3天');
+  assert.equal(arrivalLabel('2026-10-29', observed, 'en'), 'Arrived 2 days ago');
+  assert.equal(arrivalLabel('2026-10-30', observed, 'en'), 'Arrived yesterday');
+  assert.equal(arrivalLabel('2026-10-28', observed, 'en'), 'Arrived 3 days ago');
   for (const age of [undefined, null, -1, 1.5, '2', 3651]) assert.equal(arrivalDay(age, observed.toISOString()), null);
   assert.equal(arrivalDay(1, 'invalid'), null);
   for (const value of [undefined, null, '', '2026-02-30', '2026-13-01', '2026-11-01']) assert.equal(arrivalLabel(value, observed), '');
@@ -59,7 +63,19 @@ test('旧存档缺失到站日期时不拿导入或同步时间冒充，下一�
   const id = state.parcels[0].id;
   state = mergeOfficialSnapshot(state, snapshot({ arrivalDaysAgo: 1 }));
   assert.equal(state.parcels[0].id, id);
-  assert.equal(arrivalLabel(state.parcels[0].arrivedOn, observed), '1日前到站');
+  assert.equal(arrivalLabel(state.parcels[0].arrivedOn, observed), '昨天到站');
+});
+
+test('跨日离线使用本地日期，旧网页的今日到站不能重置同地点已知日期', () => {
+  let state = mergeOfficialSnapshot({ version: 1, customProviders: [], parcels: [] }, snapshot({ arrivalDaysAgo: 0 }));
+  const nextDay = new Date(2026, 10, 1, 9, 0);
+  const offline = validateSavedState(JSON.parse(JSON.stringify(state)), catalog);
+  assert.equal(arrivalLabel(offline.parcels[0].arrivedOn, nextDay), '昨天到站');
+  state = mergeOfficialSnapshot(offline, snapshot({ arrivalDaysAgo: 0 }, nextDay));
+  assert.equal(state.parcels[0].arrivedOn, '2026-10-31');
+  assert.equal(arrivalLabel(state.parcels[0].arrivedOn, nextDay), '昨天到站');
+  state = mergeOfficialSnapshot(state, snapshot({ station: '新测试驿站', arrivalDaysAgo: 0 }, nextDay));
+  assert.equal(state.parcels[0].arrivedOn, '2026-11-01');
 });
 
 test('短信到站日期默认今天，可选前7天边界，未来和更早日期在保存层被拒绝', () => {

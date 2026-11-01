@@ -75,3 +75,17 @@ button:active,a:active,[role="button"]:active{transform:scale(.97);opacity:.72}
 /* 统计卡片与独立导入按钮按3:2分列，同步状态紧随其下。 */
 .home-summary{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);align-items:end;gap:12px;margin-bottom:0}.home-summary .home-count{display:block;min-width:0;height:140px;min-height:140px;padding:16px}.home-count>.summary-primary{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}.home-summary .summary-primary>span{font-size:16px;font-weight:600}.summary-primary strong{font-size:48px}.summary-primary small{margin-top:0;font-size:13px}.home-summary .home-import-actions{display:block;min-width:0;margin:0}.home-summary .home-import-actions #add-parcel{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;width:100%;min-width:0;height:96px;min-height:96px;font-size:14px;font-weight:500;padding:10px;background:var(--card);color:var(--blue);border-radius:20px;white-space:normal}.home-summary #add-parcel>span[aria-hidden]{font-size:28px;line-height:1}.sync-line{display:block;margin:6px 0 22px}.sync-summary{display:flex;align-items:center;justify-content:space-between;gap:12px}.sync-summary #sync-status{flex:1;min-width:0}.sync-summary #refresh-snapshot{flex-shrink:0;min-height:30px;padding:0;color:var(--muted)}.sync-summary .update-stamp{white-space:nowrap;flex-wrap:nowrap}.sync-line #login-retry{padding:6px 0;margin-top:2px}
 @media(max-width:350px){:root[lang="en"] .home-summary .summary-primary>span{font-size:14px;white-space:nowrap}}
+
+/* 复制只显示短提示；历史日期/地点用蓝色分组，窄屏保留完整号码。 */
+#toast{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .25s ease,visibility .25s ease}
+#toast.visible{opacity:1;visibility:visible}
+.history-day>h3{font-size:22px;font-weight:700;color:var(--blue);margin:30px 0 16px}
+.history-day h4{font-size:17px;line-height:1.5;font-weight:650;color:var(--blue);margin:24px 0 12px}
+.history-day .station-group{margin-bottom:0}
+.parcel-meta{flex-wrap:wrap;column-gap:4px;row-gap:0}
+.parcel-meta>span[aria-hidden]{display:none}
+.tracking-inline{max-width:100%}
+.tracking-inline .tracking-number{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
+.code-details{container-type:inline-size}
+.code-row strong{white-space:nowrap;font-size:clamp(16px,13cqi,27px);max-width:100%}
+.arrival-stamp{white-space:normal}

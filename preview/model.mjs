@@ -17,7 +17,8 @@ export function arrivalAge(day, now=new Date()) {
 }
 export function arrivalLabel(day, now=new Date(), language='zh-Hans') {
   const days=arrivalAge(day,now);if(days===null)return '';
-  return language==='en'?(days===0?'Arrived today':`Arrived ${days}d ago`):(days===0?'今日到站':`${days}日前到站`);
+  if(language==='en')return ['Arrived today','Arrived yesterday','Arrived 2 days ago'][days]||`Arrived ${days} days ago`;
+  return ['今日到站','昨天到站','前天到站'][days]||`已到站${days}天`;
 }
 export function nextParcelTitle(parcels, date=new Date()) {
   const day=arrivalDay(0,date.toISOString()),compact=day.replaceAll('-',''),short=compact.slice(4);
@@ -264,7 +265,7 @@ export function mergeOfficialSnapshot(state, snapshot) {
     const shouldName=!previous||(['taobao-web','cainiao-web'].includes(previous.source)&&previous.title===row.title&&!previous.smsOriginal);
     const title=shouldName?nextParcelTitle(parcels,new Date(previous?.addedAt||importedAt)):previous.title;
     let incoming={...previous,...row,title,id:previous?.id||crypto.randomUUID(),addedAt:previous?.addedAt||importedAt,collectedAt:previous?.collectedAt||null,isDemo:false,
-      arrivedOn:arrivalDay(row.arrivalDaysAgo,snapshot.readAt)||(identityText(previous?.station)===identityText(row.station)?previous?.arrivedOn:null),
+      arrivedOn:(identityText(previous?.station)===identityText(row.station)?previous?.arrivedOn:null)||arrivalDay(row.arrivalDaysAgo,snapshot.readAt),
       providerID:'taobao',source:'taobao-web',lastReadAt:snapshot.readAt,inLatestOfficialSnapshot:true,awaitingArrival:false};
     incoming=attachCredential(incoming,{providerID:'taobao',station:row.station,pickupCode:row.pickupCode,source:'taobao-web',isCurrent:true,lastSeenAt:snapshot.readAt});
     if(index>=0)parcels[index]=incoming;else parcels.unshift(incoming);

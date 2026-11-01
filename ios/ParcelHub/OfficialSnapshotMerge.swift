@@ -35,8 +35,9 @@ enum OfficialSnapshotMerge {
                 parcel.title = ParcelNaming.nextTitle(in: parcels, date: parcel.addedAt)
             }
             parcel.providerID = "taobao"
-            parcel.arrivedOn = ParcelArrival.day(daysAgo: row.arrivalDaysAgo, readAt: snapshot.readAt)
-                ?? (ParcelIdentity.text(parcel.station) == ParcelIdentity.text(row.station) ? parcel.arrivedOn : nil)
+            // 同一地点的已知日期只保存一次，防止官方缓存的“今日到站”每天重置本地天数。
+            let knownArrival = ParcelIdentity.text(parcel.station) == ParcelIdentity.text(row.station) ? parcel.arrivedOn : nil
+            parcel.arrivedOn = knownArrival ?? ParcelArrival.day(daysAgo: row.arrivalDaysAgo, readAt: snapshot.readAt)
             parcel.awaitingArrival = false
             parcel.attach(ParcelCredential(providerID: "taobao", station: row.station, pickupCode: row.pickupCode,
                                             source: "taobao-web", isCurrent: true, lastSeenAt: now))

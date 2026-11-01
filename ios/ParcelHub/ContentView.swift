@@ -34,11 +34,14 @@ struct AppMessage: View {
 }
 
 struct ContentView: View {
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var network: NetworkStatus
     @EnvironmentObject private var store: ParcelStore
     @EnvironmentObject private var clipboard: ClipboardImportController
     @State private var selectedTab = 0
     @State private var showingClipboardPrompt = false
+    @State private var copyToastID: UUID?
+    @State private var showingCopyToast = false
     var body: some View {
         TabView(selection: $selectedTab) {
             PackagesView().tabItem { Label("待取件", systemImage: "shippingbox") }.tag(0)
@@ -68,6 +71,24 @@ struct ContentView: View {
         .alert("本地数据提示", isPresented: Binding(get: { store.storageWarning != nil }, set: { _ in })) {
             Button("知道了", role: .cancel) { }
         } message: { Text(LocalizedStringKey(store.storageWarning ?? "")) }
+        .overlay(alignment: .bottom) {
+            if showingCopyToast {
+                Text("已复制到剪贴板").font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 20).padding(.vertical, 12)
+                    .background(.regularMaterial, in: Capsule()).shadow(radius: 6, y: 2)
+                    .padding(.bottom, 76).transition(.opacity).allowsHitTesting(false)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ParcelHub.copied"))) { _ in
+            copyToastID = UUID()
+            withAnimation(.easeInOut(duration: 0.2)) { showingCopyToast = true }
+            UIAccessibility.post(notification: .announcement, argument: String(localized: "已复制到剪贴板", locale: locale))
+        }
+        .task(id: copyToastID) {
+            guard copyToastID != nil else { return }
+            do { try await Task.sleep(for: .seconds(1.6)) } catch { return }
+            withAnimation(.easeOut(duration: 0.3)) { showingCopyToast = false }
+        }
     }
 }
 
@@ -291,9 +312,34 @@ struct ParcelCard: View {
     let parcel: Parcel
     @EnvironmentObject private var store: ParcelStore
     @EnvironmentObject private var clipboard: ClipboardImportController
-    @State private var copied = false
-    @State private var copiedTracking = false
     @State private var showingSMS = false
+    private func copy(_ value: String) {
+        UIPasteboard.general.string = value
+        clipboard.ignoreCurrentChange()
+        NotificationCenter.default.post(name: Notification.Name("ParcelHub.copied"), object: nil)
+    }
+    private var trackingLabel: some View {
+        HStack(spacing: 2) {
+            Text(parcel.trackingNumber).font(.system(.caption2, design: .monospaced))
+                .lineLimit(1).minimumScaleFactor(0.65).textSelection(.enabled)
+            Button { copy(parcel.trackingNumber) } label: {
+                Image(systemName: "doc.on.doc").font(.caption2)
+                    .frame(width: 26, height: 24).contentShape(Rectangle())
+            }.accessibilityLabel("复制运单号")
+        }
+    }
+    private var metadata: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 3) {
+                Text(parcel.carrier.isEmpty ? "快递" : parcel.carrier)
+                if !parcel.trackingNumber.isEmpty { Text(verbatim: "·"); trackingLabel }
+            }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(parcel.carrier.isEmpty ? "快递" : parcel.carrier).lineLimit(1)
+                if !parcel.trackingNumber.isEmpty { trackingLabel }
+            }
+        }.font(.caption).foregroundStyle(.secondary)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -302,20 +348,7 @@ struct ParcelCard: View {
                 } else if let provider = store.provider(parcel.providerID) { ProviderMark(provider: provider, size: 40) }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(parcel.title).font(.system(size: 16, weight: .semibold)).lineLimit(2)
-                    HStack(spacing: 3) {
-                        Text(parcel.carrier.isEmpty ? "快递" : parcel.carrier).lineLimit(1).fixedSize()
-                        if !parcel.trackingNumber.isEmpty {
-                            Text(verbatim: "·")
-                            Text(parcel.trackingNumber).font(.system(.caption2, design: .monospaced))
-                                .lineLimit(1).truncationMode(.middle).textSelection(.enabled).layoutPriority(-1)
-                            Button {
-                                UIPasteboard.general.string = parcel.trackingNumber; clipboard.ignoreCurrentChange(); copiedTracking = true
-                            } label: {
-                                Image(systemName: copiedTracking ? "checkmark" : "doc.on.doc").font(.caption2)
-                                    .frame(width: 26, height: 24).contentShape(Rectangle())
-                            }.accessibilityLabel("复制运单号")
-                        }
-                    }.font(.caption).foregroundStyle(.secondary)
+                    metadata
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Button { store.toggleCollected(parcel) } label: {
                     Text(LocalizedStringKey(parcel.isCollected ? "恢复待取" : "我已取件"))
@@ -323,18 +356,16 @@ struct ParcelCard: View {
                         .background(Palette.blue.opacity(0.10), in: Capsule())
                 }.accessibilityLabel(parcel.isCollected ? "恢复待取" : "我已取件")
             }
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(parcel.pickupCode).font(.system(size: 28, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                         .minimumScaleFactor(0.6).lineLimit(1)
                     if ParcelArrival.daysAgo(on: parcel.arrivedOn) != nil { ArrivalStamp(day: parcel.arrivedOn) }
-                }
-                Spacer()
+                }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
                 VStack(alignment: .trailing, spacing: 3) {
                     if !parcel.isCollected {
-                        Button(LocalizedStringKey(copied ? "已复制" : "复制")) {
-                            UIPasteboard.general.string = parcel.pickupCode; clipboard.ignoreCurrentChange(); copied = true
-                        }.font(.caption).frame(minHeight: 24)
+                        Button("复制") { copy(parcel.pickupCode) }
+                            .font(.caption).frame(minHeight: 24)
                     } else if parcel.hasSMS {
                         Button { showingSMS = true } label: {
                             Image(systemName: "message").font(.caption).frame(width: 28, height: 24)
@@ -355,13 +386,22 @@ struct ParcelCard: View {
 
 private struct ArrivalStamp: View {
     let day: String?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var now = Date()
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            if let days = ParcelArrival.daysAgo(on: day, now: context.date) {
+        Group {
+            if let days = ParcelArrival.daysAgo(on: day, now: now) {
                 if days == 0 { Text("今日到站") }
-                else { Text("\(days)日前到站") }
+                else if days == 1 { Text("昨天到站") }
+                else if days == 2 { Text("前天到站") }
+                else { Text("已到站\(days)天") }
             }
         }.font(.caption2).foregroundStyle(.secondary).fixedSize()
+            .onAppear { now = Date() }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { now = Date() } }
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in now = Date() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in now = Date() }
+            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in now = Date() }
     }
 }
 
@@ -616,15 +656,21 @@ struct CollectedParcelsView: View {
             if records.isEmpty { ContentUnavailableView(LocalizedStringKey(search.isEmpty ? "暂无已取记录" : "没有匹配的记录"), systemImage: "checkmark.circle") }
             ForEach(days, id: \.self) { day in
                 let daily = records.filter { Calendar.current.isDate($0.collectedAt ?? .distantPast, inSameDayAs: day) }
-                Section(day.formatted(date: .abbreviated, time: .omitted)) {
+                Section {
                     ForEach(Array(Set(daily.map(\.station))).sorted(), id: \.self) { station in
-                        Text(station).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(station).font(.headline).foregroundStyle(Palette.blue)
+                            .listRowInsets(EdgeInsets(top: 20, leading: 12, bottom: 10, trailing: 12))
+                            .listRowBackground(Color.clear).listRowSeparator(.hidden)
                         ForEach(daily.filter { $0.station == station }) { parcel in
                             CollectedParcelRow(parcel: parcel, openDeletionID: $openDeletionID)
                                 .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
                                 .listRowBackground(Color.clear).listRowSeparator(.hidden)
                         }
                     }
+                } header: {
+                    Text(day, format: .dateTime.year().month().day())
+                        .font(.title3.weight(.bold)).foregroundStyle(Palette.blue).textCase(nil)
+                        .padding(.top, 10).padding(.bottom, 4)
                 }
             }
         }.buttonStyle(.automatic).safeAreaInset(edge: .top, spacing: 0) {
@@ -739,7 +785,7 @@ struct SettingsView: View {
             Section {
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
             } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.5 · 本地开发版").foregroundStyle(.secondary) }
+            Section("关于涂涂取件") { Text("版本 0.7.8 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }

@@ -22,7 +22,13 @@ const mark = id => {
   return `<span class="mark">${brand ? `<img src="${esc(brand.preview)}" alt="${esc(brand.name)}">` : '▣'}</span>`;
 };
 const carrierID = company => [['韵达','yunda'],['中通','zto'],['申通','sto'],['圆通','yto'],['顺丰','sf'],['京东','jd'],['极兔','jtexpress'],['德邦','deppon'],['EMS','ems'],['邮政','post'],['菜鸟','cainiao']].find(([name]) => company.toUpperCase().includes(name))?.[1];
-function notify(text) { $('#toast').textContent = text; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 3000); }
+function notify(text,duration=3000) {
+  const toast=$('#toast');clearTimeout(toastTimer);
+  toast.textContent=text;toast.hidden=false;toast.classList.remove('visible');
+  void toast.offsetWidth;
+  toast.classList.add('visible');localizeDOM(toast,displayPreferences(state).language,english);
+  toastTimer=setTimeout(()=>toast.classList.remove('visible'),duration);
+}
 function save(next) {
   if (readonly) throw new Error('本地数据异常，暂不覆盖原记录');
   localStorage.setItem(key, JSON.stringify(next)); state = next; applyDisplayPreferences(); render();
@@ -150,7 +156,7 @@ function officialLogin() {
   $('#open-official-login').onclick=()=>{const message=isOffline()?SERVICE_MESSAGES.offline:!openExternal(catalog.find(p=>p.id==='taobao').parcelsURL)?'页面未能打开，请允许打开官方页面后重试。':null;if(message){$('#login-error').hidden=false;$('#login-error').textContent=message;}};
 }
 const heading = title => `<div class="modal-head"><h2>${esc(title)}</h2><button class="close-modal" aria-label="关闭">✕</button></div>`;
-async function copy(text) { try { await navigator.clipboard.writeText(text); notify('已复制'); } catch { notify('请手动选中复制'); } }
+async function copy(text) { try { await navigator.clipboard.writeText(text); notify('已复制到剪贴板',1800); } catch { notify('请手动选中复制'); } }
 function bindingGuide() {
   return `<section class="binding-guide"><h3>如何获取小程序链接</h3><p class="form-note">以兔喜为例，其他平台菜单可能不同。</p><div class="guide-steps">${[['binding-menu.jpg','1','打开小程序右上角“…” → 添加到桌面'],['binding-safari-url.jpg','2','在 Safari 复制地址栏完整链接']].map(([file,step,label])=>`<button type="button" class="guide-step" data-guide-image="${file}"><span class="guide-step-title"><b>${step}</b><span>${label}</span></span><img src="/preview/assets/${file}" alt="${label}"><small>点击截图可放大</small></button>`).join('')}</div><p class="form-note">复制网址后返回粘贴，无需添加到主屏幕。</p></section>`;
 }
@@ -276,7 +282,7 @@ function settingsLink(id,title,icon,detail='') {return `<button class="settings-
 function settingsToggle(id,title,icon,enabled) {return `<label class="settings-switch-row">${settingsIcon(icon)}<span class="settings-row-title">${title}</span><span class="ios-switch"><input id="${id}" type="checkbox" role="switch" aria-label="${title}" ${enabled?'checked':''}><span class="switch-track"></span></span></label>`;}
 function settings() {
   const preferences=displayPreferences(state),appearance={system:'跟随系统',light:'浅色',dark:'深色'}[preferences.appearance];
-  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.7</p>`);
+  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.8</p>`);
   modal.classList.add('settings-dialog');
   $('#auto-sync').onchange=event=>save({...state,autoSyncEnabled:event.target.checked});
   $('#clipboard-detection').onchange=event=>{save({...state,clipboardDetectionEnabled:event.target.checked});if(!event.target.checked){clipboardCandidate=null;$('#clipboard-modal').close();}else{lastClipboardText='';checkClipboard();}};
@@ -436,5 +442,18 @@ document.addEventListener('keydown',event=>{
   document.querySelector(`[data-sort-handle="${CSS.escape(id)}"]`)?.focus();
 });
 
-// 到站天数随日历变化，不依赖网络请求，也不重绘正在拖动的卡片。
-setInterval(()=>{if(!state||document.hidden)return;document.querySelectorAll('[data-arrival-date]').forEach(element=>{element.textContent=arrivalLabel(element.dataset.arrivalDate,new Date(),displayPreferences(state).language);});},60000);
+// 使用本机日历在午夜及返回前台时更新，不等待官方同步。
+let arrivalTimer;
+function updateArrivalStamps() {
+  clearTimeout(arrivalTimer);
+  const now=new Date();
+  if(state&&!document.hidden)document.querySelectorAll('[data-arrival-date]').forEach(element=>{
+    element.textContent=arrivalLabel(element.dataset.arrivalDate,now,displayPreferences(state).language);
+  });
+  const midnight=new Date(now);midnight.setHours(24,0,0,0);
+  arrivalTimer=setTimeout(updateArrivalStamps,Math.min(midnight-now+25,60000));
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateArrivalStamps();});
+window.addEventListener('pageshow',updateArrivalStamps);
+window.addEventListener('focus',updateArrivalStamps);
+updateArrivalStamps();
