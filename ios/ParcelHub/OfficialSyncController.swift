@@ -71,6 +71,7 @@ final class OfficialSyncController: ObservableObject {
     }
 
     func setActive(_ value: Bool) {
+        let becameActive = value && !active
         active = value
         timer?.invalidate()
         timer = nil
@@ -80,7 +81,8 @@ final class OfficialSyncController: ObservableObject {
         }
         guard !isAuthenticating else { return }
         guard store.autoSyncEnabled else { session.stop(); finish(); status = "自动刷新已关闭"; return }
-        refresh()
+        // 返回前台不受上次尝试的一分钟间隔影响；已失效的登录仍由用户处理。
+        refresh(force: becameActive && !needsLogin)
         timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }

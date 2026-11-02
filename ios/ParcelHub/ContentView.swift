@@ -360,7 +360,7 @@ struct ParcelCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(parcel.pickupCode).font(.system(size: 28, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                         .minimumScaleFactor(0.6).lineLimit(1)
-                    if ParcelArrival.daysAgo(on: parcel.arrivedOn) != nil { ArrivalStamp(day: parcel.arrivedOn) }
+                    if !parcel.isCollected && ParcelArrival.daysAgo(on: parcel.arrivedOn) != nil { ArrivalStamp(day: parcel.arrivedOn) }
                 }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
                 VStack(alignment: .trailing, spacing: 3) {
                     if !parcel.isCollected {
@@ -785,7 +785,7 @@ struct SettingsView: View {
             Section {
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
             } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.8 · 本地开发版").foregroundStyle(.secondary) }
+            Section("关于涂涂取件") { Text("版本 0.7.9 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }
@@ -913,6 +913,10 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
     override init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        if let url = Bundle.main.url(forResource: "taobao-refresh", withExtension: "js"),
+           let source = try? String(contentsOf: url, encoding: .utf8) {
+            configuration.userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         // 只适配淘宝取件页面的视口；不隐藏页面内容，不影响官方登录和验证码。
         let viewport = """
         (() => {
@@ -958,7 +962,10 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         status = "正在加载官方页面…"
         isLoading = true
         hasError = false
-        webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30))
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        webView.load(request)
     }
 
     func reauthenticate(returningTo destination: URL) {
@@ -1017,7 +1024,16 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         readAttempt += 1
         let attempt = readAttempt
         status = "正在读取…"
-        let script = "JSON.stringify((\(reader))(document.body ? document.body.innerText : ''))"
+        let script = """
+        (() => {
+          const snapshot = (\(reader))(document.body ? document.body.innerText : '');
+          const freshness = window.__tutuTaobaoFreshness;
+          if (freshness) return JSON.stringify(freshness.verify(snapshot));
+          if (snapshot.state === 'login_required' || snapshot.state === 'error') return JSON.stringify(snapshot);
+          return JSON.stringify({state: 'loading', message: '正在确认最新清单…',
+            parcels: [], expectedCount: null, readAt: snapshot.readAt});
+        })()
+        """
         webView.evaluateJavaScript(script) { [weak self] value, error in
             guard let self, self.generation == requestGeneration else { return }
             guard error == nil, let json = value as? String, let data = json.data(using: .utf8),
@@ -1027,7 +1043,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
             }
             let result = self.emptyConfirmation.accepting(snapshot)
             if result.state == "filtered_empty" {
-                guard attempt < 14 else { self.fail(.incomplete); return }
+                guard attempt < 40 else { self.fail(.incomplete); return }
                 self.status = "正在确认空清单…"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
                     guard let self, self.generation == requestGeneration else { return }
@@ -1037,7 +1053,7 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
             }
             // 页面应用异步加载，首次得到的占位零件不得清空已有记录。
             if result.state == "loading" {
-                if attempt < 12 {
+                if attempt < 40 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
                         guard let self, self.generation == requestGeneration else { return }
                         self.readPending()
@@ -1064,6 +1080,11 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         self.webView(webView, didFailProvisionalNavigation: navigation, withError: error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        stop()
+        fail(.unavailable)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -1100,11 +1121,13 @@ struct OfficialPickupWebView: UIViewRepresentable {
 
 struct OfficialPickupView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var store: ParcelStore
     @EnvironmentObject private var sync: OfficialSyncController
     @StateObject private var session = OfficialPickupSession()
     @State private var page: Int
     @State private var confirmingAuthentication = false
+    @State private var refreshAfterBackground = false
     init(initialPage: Int = 1) { _page = State(initialValue: initialPage) }
     private var pageURL: URL { page == 1 ? OfficialPickupSession.identity : OfficialPickupSession.parcels }
     var body: some View {
@@ -1170,6 +1193,16 @@ struct OfficialPickupView: View {
                 else { NotificationCenter.default.post(name: Notification.Name("ParcelHub.official-session-changed"), object: nil) }
             }
             .onChange(of: page) { _, _ in session.load(pageURL) }
+            .onChange(of: scenePhase) { _, phase in
+                guard session.authenticationDestination == nil && !sync.isAuthenticating else { return }
+                if phase == .background {
+                    refreshAfterBackground = true
+                    session.stop()
+                } else if phase == .active && refreshAfterBackground {
+                    refreshAfterBackground = false
+                    session.load(pageURL)
+                }
+            }
             .onChange(of: session.readResult) { _, result in
                 guard let result, result.state == "ready" else { return }
                 let previousCount = store.collected.count
