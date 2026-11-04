@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {mergeOfficialSnapshot, filterParcels} from '../preview/model.mjs';
 
 const source = await readFile(new URL('../shared/taobao-refresh.js', import.meta.url), 'utf8');
+const parsePage = vm.runInNewContext(await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8'));
 const api = 'mtop.cainiao.pickup.plus.queryMultiStaPackages4Xy';
 const success = {ret: ['SUCCESS::调用成功'], data: {privateTestValue: 'not-for-status'}};
 function setup(request, path = '/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home') {
@@ -92,13 +93,13 @@ test('并发查询等待全部结束，旧查询的迟到结果不能覆盖较�
   assert.equal(h.read().state, 'error');
 });
 
-test('兼容旧版清单接口但不猜它的刷新参数；畸形请求保留官方处理', async () => {
+test('辅助查件接口不能证明完整清单已刷新；畸形请求保留官方处理', async () => {
   let captured;
   const h = setup(params => {captured = params;return Promise.resolve(success);});
   const input = {api: 'mtop.cainiao.pickup.xiaoyuan.queryMultisitePkgs', data: {pageNum: 1}};
   await h.window.lib.mtop.request(input);await tick();h.advance(500);
   assert.equal(captured, input);
-  assert.equal(h.read().state, 'ready');
+  assert.equal(h.read().state, 'waiting');
   const invalid = setup(params => {captured = params;return Promise.resolve(success);});
   const bad = {api, data: '{invalid'};
   await invalid.window.lib.mtop.request(bad);await tick();
@@ -148,17 +149,18 @@ test('实际导入门禁拒绝旧清单和旧空页；成功的新清单才归�
   assert.equal(filterParcels(next, catalog, {collected: true}).length, 1);
 });
 
-test('实际门禁转交登录和错误，查询失败及新查询进行中均不能复用上次成功', async () => {
+test('实际门禁转交登录，页面错误等待本轮查询，失败及重试不能复用上次成功', async () => {
   let response = success;
   const h = setup(() => Promise.resolve(response));
   const verify = h.window.__tutuTaobaoFreshness.verify;
   const snapshot = {state: 'ready', parcels: [{trackingNumber: 'PRIVATE_TEST'}], expectedCount: 1, readAt: new Date().toISOString()};
-  for (const state of ['error', 'login_required']) {
-    const failure = {...snapshot, state};
-    assert.equal(verify(failure), failure);
-  }
+  const login = {...snapshot, state: 'login_required'};
+  const pageError = {...snapshot, state: 'error'};
+  assert.equal(verify(login), login);
+  assert.equal(verify(pageError).state, 'loading');
   await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
   assert.equal(verify(snapshot), snapshot);
+  assert.equal(verify(pageError), pageError);
   response = {ret: ['FAIL_SYS_SERVICE_FAULT']};
   const retry = h.window.lib.mtop.request({api, data: {}});
   assert.equal(verify(snapshot).state, 'loading');
@@ -168,4 +170,104 @@ test('实际门禁转交登录和错误，查询失败及新查询进行中均�
   response = {ret: ['FAIL_SYS_SESSION_EXPIRED']};
   await h.window.lib.mtop.request({api, data: {}});await tick();
   assert.equal(verify(snapshot).state, 'login_required');
+});
+
+test('首次查询明确请求待取件，用户主动选择其他标签仍原样发送但不能导入', async () => {
+  let captured;
+  const h = setup(params => {captured = params;return Promise.resolve(success);});
+  const original = {api, data: {stationCode: 'TEST'}};
+  await h.window.lib.mtop.request(original);await tick();h.advance(500);
+  assert.equal(captured.data.activeTab, 'PENDING_PICKUP');
+  assert.equal(original.data.activeTab, undefined);
+  for (const activeTab of ['TRACKING', 'SIGNED', 'RETURNED']) {
+    await h.window.lib.mtop.request({api, data: {activeTab}});await tick();h.advance(500);
+    assert.equal(captured.data.activeTab, activeTab);
+    assert.equal(h.read().state, 'other_tab');
+    assert.equal(h.window.__tutuTaobaoFreshness.verify({state: 'ready', parcels: [], readAt: 'test'}).state, 'error');
+  }
+});
+
+test('复现空状态与旧数量冲突，等待新请求及页面更新后才导入新到包裹', async () => {
+  let complete;
+  const h = setup(() => new Promise(resolve => {complete = resolve;}));
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  const before = parsePage('待取件（1）\n未查到100****0000的包裹');
+  assert.equal(before.state, 'error');
+  assert.equal(before.retryable, true);
+  assert.equal(verify(before).state, 'loading');
+  const request = h.window.lib.mtop.request({api, data: {}});
+  assert.equal(verify(before).state, 'loading');
+  complete(success);await request;await tick();h.advance(500);
+  assert.equal(verify(before).state, 'loading');
+  const after = parsePage('待取件（1）\n测试北门驿站\n看包裹\n01-2-0003\n今日到站\n中通 TESTZTO00001\n还有包裹未显示？查询取件码');
+  const verified = verify(after);
+  assert.equal(verified.state, 'ready');
+  const updated = mergeOfficialSnapshot({version: 1, customProviders: [], parcels: []}, JSON.parse(JSON.stringify(verified)));
+  assert.equal(updated.parcels.length, 1);
+  assert.equal(updated.parcels[0].trackingNumber, 'TESTZTO00001');
+  assert.throws(() => mergeOfficialSnapshot(updated, verify(before)));
+});
+
+test('空页、残留卡片和数量矛盾仍不能清空，诊断只记录数量和布尔状态', async () => {
+  const response = {ret: ['SUCCESS::test'], data: {componentList: [
+    {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count: 0}]}
+  ], mobile: 'PRIVATE_PHONE', waybillNo: 'PRIVATE_WAYBILL'}};
+  const h = setup(() => Promise.resolve(response));
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  for (const text of [
+    '待取件（1）\n未查到100****0000的包裹',
+    '待取件\n0\n未查到100****0000的包裹\n01-2-0003',
+    '待取件（1）\n暂无待取包裹'
+  ]) {
+    const snapshot = parsePage(text);
+    assert.equal(verify(snapshot).state, 'loading');
+    assert.equal(snapshot.diagnostics.badgeCount === null || typeof snapshot.diagnostics.badgeCount === 'number', true);
+    assert.ok(!JSON.stringify(snapshot.diagnostics).includes('100****0000'));
+    assert.ok(!JSON.stringify(snapshot.diagnostics).includes('01-2-0003'));
+  }
+  assert.equal(h.read().manifest.pendingCount, 0);
+  assert.equal(h.read().manifest.activeTab, 'PENDING_PICKUP');
+  assert.ok(!JSON.stringify(h.read()).includes('PRIVATE_'));
+});
+
+test('服务端返回其他活动标签时拒绝导入，未知响应只显示未知而不编造数量', async () => {
+  let response = {ret: ['SUCCESS::test'], data: {componentList: [
+    {componentCode: 'tabInfo', data: [{tabKey: 'SIGNED', active: true}, {tabKey: 'PENDING_PICKUP', count: 2}]}
+  ]}};
+  const h = setup(() => Promise.resolve(response));
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(h.read().state, 'other_tab');
+  assert.equal(h.read().manifest.pendingCount, 2);
+  response = success;
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(h.read().manifest.schema, 'unknown');
+  assert.equal(h.read().manifest.pendingCount, null);
+});
+
+test('新响应仍有包裹时，旧空页不能归档；页面数量须与响应明确给出的待取数量相符', async () => {
+  const h = setup(() => Promise.resolve({ret: ['SUCCESS::test'], data: {componentList: [
+    {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count: 1}]}
+  ]}}));
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  for (const text of ['待取件\n0\n暂无待取件', '待取件\n未查到100****0000的包裹']) {
+    assert.equal(verify(parsePage(text)).state, 'loading');
+  }
+  const snapshot = {state: 'ready', expectedCount: 1, parcels: [{trackingNumber: 'TEST_ONLY'}], readAt: 'test'};
+  assert.equal(verify(snapshot), snapshot);
+  assert.equal(verify({...snapshot, expectedCount: 2}).state, 'loading');
+});
+
+test('官方库原地将 data 转成签名用 JSON 后，仍能确认待取标签且不改调用方数据', async () => {
+  const input = {api, data: {stationCode: 'TEST'}};
+  const h = setup(params => {
+    params.data = JSON.stringify(params.data);
+    return Promise.resolve(success);
+  });
+  await h.window.lib.mtop.request(input);await tick();h.advance(500);
+  assert.equal(h.read().state, 'ready');
+  assert.equal(h.read().manifest.requestedTab, 'PENDING_PICKUP');
+  assert.equal(input.data.stationCode, 'TEST');
+  assert.equal(input.data.activeTab, undefined);
 });

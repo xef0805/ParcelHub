@@ -1,7 +1,8 @@
 (function parseCainiaoPage(text) {
   const lines = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const diagnostics = {badgeCount: null, codeLineCount: 0, phoneEmpty: false, hasLoading: false};
   const result = (state, message, parcels = [], expectedCount = null) => ({
-    state, message, parcels, expectedCount, readAt: new Date().toISOString()
+    state, message, parcels, expectedCount, readAt: new Date().toISOString(), diagnostics
   });
   if (lines.some(line => /接口超时|请求超时|网络异常|网络错误|服务开小差|系统繁忙|访问受限|请完成验证/.test(line))) {
     return result('error', '官方页面返回错误或验证要求，原有记录保持不变');
@@ -11,6 +12,7 @@
   }
   // 推荐商品也显示“加载中”，不能用整页加载文案否定已完整读取的非空清单。
   const hasLoading = lines.some(line => /^(加载中|正在加载|正在刷新)[.。…]*$/.test(line));
+  diagnostics.hasLoading = hasLoading;
   const start = lines.findIndex(line => /^待取件(?:\s*[（(]\s*\d+\s*[）)])?$/.test(line));
   if (start < 0) {
     return result('loading', '页面尚未显示完整的待取件数量，请等待后重试');
@@ -24,9 +26,12 @@
   const compactSection = section.join('').replace(/\s/g, '');
   const selectedPhoneEmpty = /未查到(?:1\d{2}[*＊]{4}\d{4}|1\d{10})[›>❯→]*的包裹/.test(compactSection)
     || /您的\d+个手机号[›>❯→]*都未查到包裹/.test(compactSection);
+  diagnostics.badgeCount = displayedCount;
+  diagnostics.codeLineCount = section.filter(line => codePattern.test(line)).length;
+  diagnostics.phoneEmpty = selectedPhoneEmpty;
   if (selectedPhoneEmpty) {
-    if (displayedCount > 0 || section.some(line => codePattern.test(line))) {
-      return result('error', '页面空状态与待取卡片不一致，保留原有记录');
+    if (displayedCount > 0 || diagnostics.codeLineCount > 0) {
+      return {...result('error', '页面空状态与待取卡片不一致，保留原有记录'), retryable: true};
     }
     return result('filtered_empty', '正在确认空清单，记录暂时保留');
   }
@@ -36,7 +41,7 @@
   if (displayedCount === null && !explicitlyEmpty) {
     return result('loading', '页面数量或空状态尚未加载完整，请等待后重试');
   }
-  if (displayedCount > 0 && explicitlyEmpty) return result('error', '页面数量与空状态不一致，保留原有记录');
+  if (displayedCount > 0 && explicitlyEmpty) return {...result('error', '页面数量与空状态不一致，保留原有记录'), retryable: true};
   const expectedCount = displayedCount ?? 0;
   if (expectedCount > 100) return result('error', '页面数量超出当前验证范围，暂不导入');
   if (expectedCount === 0 && hasLoading) {
@@ -58,14 +63,14 @@
       if (match) { carrier = match; carrierIndex = j; break; }
     }
     // 取件码与运单号必须属于同一卡片，禁止把不完整解析当作完整同步。
-    if (!carrier) return result('error', '包裹卡片结构发生变化，未导入部分结果');
+    if (!carrier) return {...result('error', '包裹卡片结构发生变化，未导入部分结果'), retryable: true};
     let station = '';
     for (let j = i - 1; j >= 0; j--) {
       if (/(驿站|快递柜|自提柜|代收点|快递服务站|取件点)$/.test(content[j]) && content[j].length < 120) {
         station = content[j]; break;
       }
     }
-    if (!station) return result('error', '未能确认实际取件地点，暂不导入');
+    if (!station) return {...result('error', '未能确认实际取件地点，暂不导入'), retryable: true};
     // 只读取本卡片取件码与运单之间的到站信息，不借用相邻包裹的日期。
     const arrivalAges = content.slice(i + 1, carrierIndex).flatMap(line => {
       if (/^(?:今日|今天)到站$/.test(line)) return [0];
@@ -80,7 +85,7 @@
   }
   const keys = entries.map(p => p.carrier + ':' + p.trackingNumber.toUpperCase());
   if (new Set(keys).size !== keys.length || entries.length !== expectedCount) {
-    return result('error', '读取数量与官方待取件数量不一致，原有记录保持不变', [], expectedCount);
+    return {...result('error', '读取数量与官方待取件数量不一致，原有记录保持不变', [], expectedCount), retryable: true};
   }
   return result('ready', '已读取官方页面当前显示的待取件', entries, expectedCount);
 })

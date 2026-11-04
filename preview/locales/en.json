@@ -316,9 +316,9 @@
   "请在淘宝官方页面完成登录，再返回刷新待取清单。": "Sign in on the official Taobao page, then return and refresh your pickup list.",
   "已请求打开小程序。若未打开，请确认微信可用；若提示链接失效，请重新获取。打开正确后再确认绑定。": "The mini-program was requested. Check WeChat is available if it did not open. Get a new link if it expired. Confirm only after the correct mini-program opens.",
   "仅为已保存的单号记录，可补充取件短信。": "These are saved tracking numbers only. Add a pickup SMS to complete their details.",
-  "版本 0.7.9 · 本地开发版": "Version 0.7.9 · Development build",
-  "涂涂取件 0.7.9": "Tutu Pickup 0.7.9",
-  "涂涂取件 0.7.9 · 本地开发预览": "Tutu Pickup 0.7.9 · Local preview",
+  "版本 0.7.10 · 本地开发版": "Version 0.7.10 · Development build",
+  "涂涂取件 0.7.10": "Tutu Pickup 0.7.10",
+  "涂涂取件 0.7.10 · 本地开发预览": "Tutu Pickup 0.7.10 · Local preview",
   "请在此页重新登录淘宝，完成后将返回取件页面。": "Sign in to Taobao on this page. You will return to the pickup page afterward.",
   "重新登录淘宝？": "Sign in to Taobao again?",
   "退出当前网页登录并重新登录": "Sign out of this web session and sign in again",
@@ -400,5 +400,10 @@
   "已到站%lld天": "Arrived %lld days ago",
   "请重新登录淘宝": "Please sign in to Taobao again",
   "同步失败，记录已保留": "Sync failed. Records kept",
-  "正在确认最新清单…": "Checking the latest pickup list..."
+  "正在确认最新清单…": "Checking the latest pickup list...",
+  "请切回淘宝待取件": "Switch back to Taobao pending pickups",
+  "复制同步诊断": "Copy sync diagnostics",
+  "请先打开淘宝待取记录": "Open Taobao pending pickups first",
+  "诊断读取失败，请重试": "Could not read diagnostics. Try again",
+  "诊断已复制": "Diagnostics copied"
 }

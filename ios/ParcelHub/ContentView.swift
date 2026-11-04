@@ -785,7 +785,7 @@ struct SettingsView: View {
             Section {
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
             } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.9 · 本地开发版").foregroundStyle(.secondary) }
+            Section("关于涂涂取件") { Text("版本 0.7.10 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }
@@ -1071,6 +1071,35 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         }
     }
 
+    func copyDiagnostics() {
+        guard webView.url?.host == Self.parcels.host, webView.url?.path == Self.parcels.path,
+              let url = Bundle.main.url(forResource: "cainiao-reader", withExtension: "js"),
+              let reader = try? String(contentsOf: url, encoding: .utf8) else {
+            status = "请先打开淘宝待取记录"
+            return
+        }
+        let requestGeneration = generation
+        let script = """
+        (() => {
+          const snapshot = (\(reader))(document.body ? document.body.innerText : '');
+          return JSON.stringify({query: window.__tutuTaobaoFreshness?.read() ?? {state: 'missing'},
+            page: snapshot.diagnostics, parsedState: snapshot.state, message: snapshot.message});
+        })()
+        """
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            guard let self, self.generation == requestGeneration else { return }
+            guard error == nil, let report = value as? String else {
+                self.status = "诊断读取失败，请重试"
+                return
+            }
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+            // 只复制请求状态、标签和数量，不包含手机号、运单、取件码或 Cookie。
+            UIPasteboard.general.string = "涂涂取件 \(version)/\(build)\n\(report)"
+            self.status = "诊断已复制"
+        }
+    }
+
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         guard (error as NSError).code != NSURLErrorCancelled else { return }
         generation += 1
@@ -1171,6 +1200,8 @@ struct OfficialPickupView: View {
                     Menu {
                         Button("刷新官方页面", systemImage: "arrow.clockwise") { session.load(pageURL) }
                             .disabled(session.authenticationDestination != nil)
+                        Button("复制同步诊断", systemImage: "doc.on.doc") { session.copyDiagnostics() }
+                            .disabled(page != 0 || session.isLoading || session.authenticationDestination != nil)
                         Button("重新登录淘宝", systemImage: "person.crop.circle") { confirmingAuthentication = true }
                         Link("在浏览器打开", destination: pageURL)
                         Text("内容由淘宝官方提供，身份码由官方刷新")

@@ -5,20 +5,27 @@
       || location.pathname !== '/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home'
       || window.__tutuTaobaoFreshness) return;
   const listAPI = 'mtop.cainiao.pickup.plus.querymultistapackages4xy';
-  const legacyAPI = 'mtop.cainiao.pickup.xiaoyuan.querymultisitepkgs';
   const pending = new Set();
   const installed = new WeakSet();
   let serial = 0, outcome = 'waiting', completedAt = 0;
+  let manifest = null;
+  const tabs = ['PENDING_PICKUP', 'TRACKING', 'SIGNED', 'RETURNED'];
   const read = () => ({
     state: pending.size || (outcome === 'ready' && Date.now() - completedAt < 500) ? 'loading' : outcome,
-    serial, completedAt
+    serial, completedAt, manifest
   });
   function verify(snapshot) {
-    if (snapshot.state === 'login_required' || snapshot.state === 'error') return snapshot;
+    if (snapshot.state === 'login_required') return snapshot;
     const query = read();
-    if (query.state === 'ready') return snapshot;
-    const state = query.state === 'login_required' ? 'login_required' : query.state === 'error' ? 'error' : 'loading';
+    const count = query.manifest?.pendingCount;
+    const countMismatch = Number.isInteger(count)
+      && ((snapshot.state === 'ready' && snapshot.expectedCount !== count)
+        || (snapshot.state === 'filtered_empty' && count > 0));
+    if (query.state === 'ready' && !snapshot.retryable && !countMismatch) return snapshot;
+    const state = query.state === 'login_required' ? 'login_required'
+      : ['error', 'other_tab'].includes(query.state) ? 'error' : 'loading';
     return {state, message: state === 'login_required' ? '请重新登录淘宝'
+      : query.state === 'other_tab' ? '请切回淘宝待取件'
       : state === 'error' ? '同步失败，记录已保留' : '正在确认最新清单…',
       parcels: [], expectedCount: null, readAt: snapshot.readAt};
   }
@@ -29,18 +36,19 @@
     const original = mtop.request;
     mtop.request = function(params, success, failure) {
       const api = String(params?.api || '').toLowerCase();
-      if (api !== listAPI && api !== legacyAPI) return original.apply(this, arguments);
-      let options = params;
+      if (api !== listAPI) return original.apply(this, arguments);
+      let options;
       // 此字段来自官方页面自身的刷新路径，在 MTOP 生成签名之前添加。
-      if (api === listAPI) {
-        try {
-          const data = typeof params.data === 'string' ? JSON.parse(params.data) : params.data;
-          if (!data || typeof data !== 'object' || Array.isArray(data)) return original.apply(this, arguments);
-          options = {...params, data: {...data, refresh: true}};
-        } catch { return original.apply(this, arguments); }
-      }
+      try {
+        const data = typeof params.data === 'string' ? JSON.parse(params.data) : params.data;
+        if (!data || typeof data !== 'object' || Array.isArray(data)) return original.apply(this, arguments);
+        options = {...params, data: {...data, refresh: true,
+          activeTab: data.activeTab || 'PENDING_PICKUP'}};
+      } catch { return original.apply(this, arguments); }
+      // 官方 MTOP 会将 options.data 原地转成 JSON 字符串，先保留标签值。
+      const requestedTab = options.data.activeTab;
       const id = ++serial;
-      pending.add(id);outcome = 'loading';
+      pending.add(id);outcome = 'loading';manifest = null;
       let settled = false;
       function finish(response) {
         if (settled) return;
@@ -49,6 +57,18 @@
         const codes = Array.isArray(response?.ret) ? response.ret.map(String) : [];
         outcome = codes.some(code => /^SUCCESS(?:::|$)/.test(code)) ? 'ready'
           : codes.some(code => /SESSION_EXPIRED|TOKEN_EXPIRED|TOKEN_EXOIRED|NEED_LOGIN/.test(code)) ? 'login_required' : 'error';
+        if (outcome === 'ready') {
+          const components = response?.data?.componentList;
+          const tabInfo = Array.isArray(components) ? components.find(part => part?.componentCode === 'tabInfo')?.data : null;
+          const active = Array.isArray(tabInfo) ? tabInfo.find(tab => tab?.active === true)?.tabKey : null;
+          const count = Array.isArray(tabInfo) ? tabInfo.find(tab => tab?.tabKey === 'PENDING_PICKUP')?.count : null;
+          manifest = {schema: Array.isArray(components) ? 'components'
+            : Array.isArray(response?.data?.staPkgAssembles) ? 'legacy' : 'unknown',
+            requestedTab: tabs.includes(requestedTab) ? requestedTab : null,
+            activeTab: tabs.includes(active) ? active : null,
+            pendingCount: Number.isInteger(count) && count >= 0 && count <= 10000 ? count : null};
+          if ((active && active !== 'PENDING_PICKUP') || requestedTab !== 'PENDING_PICKUP') outcome = 'other_tab';
+        }
         completedAt = Date.now();
       }
       const callback = fn => typeof fn === 'function' ? function(response) {
