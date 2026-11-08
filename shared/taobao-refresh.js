@@ -21,9 +21,16 @@
     const countMismatch = Number.isInteger(count)
       && ((snapshot.state === 'ready' && snapshot.expectedCount !== count)
         || (snapshot.state === 'filtered_empty' && count > 0));
-    if (query.state === 'ready' && !snapshot.retryable && !countMismatch) return snapshot;
+    const knownManifest = query.manifest?.schema === 'components'
+      ? query.manifest.activeTab === 'PENDING_PICKUP'
+      : query.manifest?.schema === 'legacy' && Number.isInteger(query.manifest.legacyPackageCount);
+    // 成功状态只代表 MTOP 传输成功；未知业务响应不能为旧 DOM 或空页背书。
+    const confirmedEmpty = count === 0 || query.manifest?.legacyEmpty === true;
+    if (query.state === 'ready' && knownManifest && !snapshot.retryable && !countMismatch
+        && (snapshot.state !== 'filtered_empty' || confirmedEmpty)) return snapshot;
     const state = query.state === 'login_required' ? 'login_required'
-      : ['error', 'other_tab'].includes(query.state) ? 'error' : 'loading';
+      : ['error', 'other_tab'].includes(query.state)
+        || (query.state === 'ready' && !knownManifest) ? 'error' : 'loading';
     return {state, message: state === 'login_required' ? '请重新登录淘宝'
       : query.state === 'other_tab' ? '请切回淘宝待取件'
       : state === 'error' ? '同步失败，记录已保留' : '正在确认最新清单…',
@@ -58,16 +65,33 @@
         outcome = codes.some(code => /^SUCCESS(?:::|$)/.test(code)) ? 'ready'
           : codes.some(code => /SESSION_EXPIRED|TOKEN_EXPIRED|TOKEN_EXOIRED|NEED_LOGIN/.test(code)) ? 'login_required' : 'error';
         if (outcome === 'ready') {
-          const components = response?.data?.componentList;
+          // 与官方 main.js 的请求适配器一致：onReceiveData 取 data.result || data.data。
+          // 仅保留旧版直接业务对象兼容，不递归猜测任意字段或解析任意字符串。
+          const outer = response?.data;
+          const envelope = outer?.result ? 'result' : outer?.data ? 'data' : 'direct';
+          const body = outer?.result || outer?.data || outer;
+          const components = body?.componentList;
           const tabInfo = Array.isArray(components) ? components.find(part => part?.componentCode === 'tabInfo')?.data : null;
           const active = Array.isArray(tabInfo) ? tabInfo.find(tab => tab?.active === true)?.tabKey : null;
           const count = Array.isArray(tabInfo) ? tabInfo.find(tab => tab?.tabKey === 'PENDING_PICKUP')?.count : null;
+          const groups = body?.staPkgAssembles;
+          const legacyCount = Array.isArray(groups) && groups.every(group => Array.isArray(group?.certainPkgList))
+            ? groups.reduce((count, group) => count + group.certainPkgList.length, 0) : null;
           manifest = {schema: Array.isArray(components) ? 'components'
-            : Array.isArray(response?.data?.staPkgAssembles) ? 'legacy' : 'unknown',
+            : Array.isArray(groups) ? 'legacy' : 'unknown', envelope,
+            businessSuccess: typeof body?.success === 'boolean' ? body.success : null,
+            componentCount: Array.isArray(components) ? components.length : null,
+            stationGroupPresent: Array.isArray(components) && components.some(part => part?.componentCode === 'stationPkgGroup'),
+            emptyComponentPresent: Array.isArray(components) && components.some(part => part?.componentCode === 'noPackage'),
+            legacyGroupCount: Array.isArray(groups) ? groups.length : null,
+            legacyPackageCount: legacyCount,
+            legacyEmpty: Array.isArray(groups) && groups.length === 0 && !!body?.noPkgInfoResp,
             requestedTab: tabs.includes(requestedTab) ? requestedTab : null,
             activeTab: tabs.includes(active) ? active : null,
-            pendingCount: Number.isInteger(count) && count >= 0 && count <= 10000 ? count : null};
-          if ((active && active !== 'PENDING_PICKUP') || requestedTab !== 'PENDING_PICKUP') outcome = 'other_tab';
+            pendingCount: Number.isInteger(count) && count >= 0 && count <= 10000 ? count
+              : !Array.isArray(components) && Number.isInteger(legacyCount) && legacyCount <= 10000 ? legacyCount : null};
+          if (body?.success === false) outcome = 'error';
+          else if ((active && active !== 'PENDING_PICKUP') || requestedTab !== 'PENDING_PICKUP') outcome = 'other_tab';
         }
         completedAt = Date.now();
       }

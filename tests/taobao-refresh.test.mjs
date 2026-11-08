@@ -7,7 +7,9 @@ import {mergeOfficialSnapshot, filterParcels} from '../preview/model.mjs';
 const source = await readFile(new URL('../shared/taobao-refresh.js', import.meta.url), 'utf8');
 const parsePage = vm.runInNewContext(await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8'));
 const api = 'mtop.cainiao.pickup.plus.queryMultiStaPackages4Xy';
-const success = {ret: ['SUCCESS::调用成功'], data: {privateTestValue: 'not-for-status'}};
+const success = {ret: ['SUCCESS::调用成功'], data: {result: {privateTestValue: 'not-for-status', componentList: [
+  {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true}]}
+]}}};
 function setup(request, path = '/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home') {
   let now = 1000;
   const listeners = new Map(), intervals = [];
@@ -239,7 +241,7 @@ test('服务端返回其他活动标签时拒绝导入，未知响应只显示�
   await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
   assert.equal(h.read().state, 'other_tab');
   assert.equal(h.read().manifest.pendingCount, 2);
-  response = success;
+  response = {ret: ['SUCCESS::test'], data: {result: {unrecognized: true}}};
   await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
   assert.equal(h.read().manifest.schema, 'unknown');
   assert.equal(h.read().manifest.pendingCount, null);
@@ -270,4 +272,95 @@ test('官方库原地将 data 转成签名用 JSON 后，仍能确认待取标�
   assert.equal(h.read().manifest.requestedTab, 'PENDING_PICKUP');
   assert.equal(input.data.stationCode, 'TEST');
   assert.equal(input.data.activeTab, undefined);
+});
+
+// 包装路径依据 2026-11-08 核对的官方 main.js 模块7354，以下内容全部虚构。
+test('按官方适配器解包 result 或 data，再核对本轮待取标签和数量', async () => {
+  for (const envelope of ['result', 'data']) {
+    const body = {componentList: [
+      {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count: 2}]},
+      {componentCode: 'stationPkgGroup', data: []}
+    ], mobile: 'PRIVATE_PHONE', waybillNo: 'PRIVATE_WAYBILL'};
+    const response = {ret: ['SUCCESS::test'], data: {[envelope]: body}};
+    const before = JSON.stringify(response);
+    const h = setup(() => Promise.resolve(response));
+    await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+    assert.equal(h.read().manifest.schema, 'components');
+    assert.equal(h.read().manifest.envelope, envelope);
+    assert.equal(h.read().manifest.pendingCount, 2);
+    assert.equal(h.read().manifest.activeTab, 'PENDING_PICKUP');
+    assert.equal(h.read().manifest.stationGroupPresent, true);
+    const verify = h.window.__tutuTaobaoFreshness.verify;
+    const good = {state: 'ready', expectedCount: 2, parcels: [{}, {}], readAt: 'test'};
+    assert.equal(verify(good), good);
+    assert.equal(verify({...good, expectedCount: 0, parcels: []}).state, 'loading');
+    assert.equal(verify(parsePage('待取件\n未查到100****0000的包裹')).state, 'loading');
+    assert.equal(JSON.stringify(response), before);
+    assert.ok(!JSON.stringify(h.read()).includes('PRIVATE_'));
+  }
+});
+
+test('官方 result 优先于 data；旧结构诊断只输出组数、包裹数和明确空状态', async () => {
+  let response = {ret: ['SUCCESS::test'], data: {
+    result: {staPkgAssembles: [{certainPkgList: [{waybillNo: 'PRIVATE_TEST'}]}]},
+    data: {componentList: []}
+  }};
+  const h = setup(() => Promise.resolve(response));
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(h.read().manifest.schema, 'legacy');
+  assert.equal(h.read().manifest.legacyGroupCount, 1);
+  assert.equal(h.read().manifest.legacyPackageCount, 1);
+  assert.equal(h.read().manifest.legacyEmpty, false);
+  assert.ok(!JSON.stringify(h.read()).includes('PRIVATE_'));
+  response = {ret: ['SUCCESS::test'], data: {data: {staPkgAssembles: [], noPkgInfoResp: {mobile: 'PRIVATE_PHONE'}}}};
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(h.read().manifest.legacyEmpty, true);
+  assert.equal(h.window.__tutuTaobaoFreshness.verify(parsePage('待取件\n未查到100****0000的包裹')).state, 'filtered_empty');
+  assert.ok(!JSON.stringify(h.read()).includes('PRIVATE_'));
+});
+
+test('用户诊断中的未知成功响应、字符串和业务失败不能为旧清单或空清单背书', async () => {
+  for (const data of [{result: {unknown: true}}, {data: 'PRIVATE_RESPONSE'}, {result: {success: false, componentList: []}}]) {
+    const h = setup(() => Promise.resolve({ret: ['SUCCESS::test'], data}));
+    await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+    const verify = h.window.__tutuTaobaoFreshness.verify;
+    for (const snapshot of [
+      {state: 'ready', expectedCount: 0, parcels: [], readAt: 'test'},
+      {state: 'ready', expectedCount: 1, parcels: [{}], readAt: 'test'},
+      parsePage('待取件\n未查到100****0000的包裹')
+    ]) assert.equal(verify(snapshot).state, 'error');
+    assert.ok(!JSON.stringify(h.read()).includes('PRIVATE_'));
+  }
+});
+
+test('手机号空页只有得到本轮响应的零件证据才能进入二次空清单确认', async () => {
+  let count;
+  const h = setup(() => Promise.resolve({ret: ['SUCCESS::test'], data: {result: {componentList: [
+    {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count}]},
+    {componentCode: 'noPackage', data: {mobile: 'PRIVATE_PHONE'}}
+  ]}}}));
+  const snapshot = parsePage('待取件\n未查到100****0000的包裹');
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  for (const value of [undefined, 1, 0]) {
+    count = value;
+    await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+    assert.equal(verify(snapshot).state, value === 0 ? 'filtered_empty' : 'loading');
+  }
+});
+
+test('解包后的旧清单不能被旧空页覆盖；缺少活动标签或残缺旧结构不能确认完整清单', async () => {
+  for (const body of [
+    {staPkgAssembles: [{certainPkgList: [{waybillNo: 'TEST_ONLY'}]}]},
+    {staPkgAssembles: [{}]},
+    {componentList: []},
+    {componentList: [{componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', count: 0}]}]}
+  ]) {
+    const h = setup(() => Promise.resolve({ret: ['SUCCESS::test'], data: {result: body}}));
+    await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+    const verify = h.window.__tutuTaobaoFreshness.verify;
+    for (const snapshot of [
+      parsePage('待取件\n0\n暂无待取件'),
+      parsePage('待取件\n未查到100****0000的包裹')
+    ]) assert.notEqual(verify(snapshot).state, snapshot.state);
+  }
 });

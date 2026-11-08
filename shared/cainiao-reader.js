@@ -1,6 +1,6 @@
 (function parseCainiaoPage(text) {
   const lines = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const diagnostics = {badgeCount: null, codeLineCount: 0, phoneEmpty: false, hasLoading: false};
+  const diagnostics = {badgeCount: null, codeLineCount: 0, dateLikeCodeLineCount: 0, linkedCodeLineCount: 0, phoneEmpty: false, hasLoading: false};
   const result = (state, message, parcels = [], expectedCount = null) => ({
     state, message, parcels, expectedCount, readAt: new Date().toISOString(), diagnostics
   });
@@ -28,6 +28,17 @@
     || /您的\d+个手机号[›>❯→]*都未查到包裹/.test(compactSection);
   diagnostics.badgeCount = displayedCount;
   diagnostics.codeLineCount = section.filter(line => codePattern.test(line)).length;
+  // 只输出匹配行的特征数量，帮助识别日期等误匹配；绝不输出原文或号码。
+  diagnostics.dateLikeCodeLineCount = section.filter(line => /^20\d{2}-\d{1,2}-\d{1,2}$/.test(line)).length;
+  const carrierPattern = /^(圆通(?:速递)?|韵达(?:快递)?|中通(?:快递)?|申通(?:快递)?|顺丰(?:速运)?|极兔(?:速递)?|邮政(?:快递)?|EMS|京东(?:物流)?|德邦(?:快递)?|菜鸟速递|百世(?:快递)?|天天(?:快递)?)\s+([A-Za-z0-9]{6,40})$/i;
+  diagnostics.linkedCodeLineCount = section.filter((line, index) => {
+    if (!codePattern.test(line)) return false;
+    for (let j = index + 1; j < Math.min(section.length, index + 15); j++) {
+      if (codePattern.test(section[j])) break;
+      if (carrierPattern.test(section[j])) return true;
+    }
+    return false;
+  }).length;
   diagnostics.phoneEmpty = selectedPhoneEmpty;
   if (selectedPhoneEmpty) {
     if (displayedCount > 0 || diagnostics.codeLineCount > 0) {
@@ -51,7 +62,6 @@
     return result('loading', '尚未确认官方空清单，保留原有记录');
   }
   const content = section;
-  const carrierPattern = /^(圆通(?:速递)?|韵达(?:快递)?|中通(?:快递)?|申通(?:快递)?|顺丰(?:速运)?|极兔(?:速递)?|邮政(?:快递)?|EMS|京东(?:物流)?|德邦(?:快递)?|菜鸟速递|百世(?:快递)?|天天(?:快递)?)\s+([A-Za-z0-9]{6,40})$/i;
   const entries = [];
   for (let i = 0; i < content.length; i++) {
     const code = content[i].match(codePattern);

@@ -179,3 +179,18 @@ test('官方出库延迟时自动刷新不会复活手动已取的记录', () =>
   assert.equal(filterParcels(next, []).length, 1);
   assert.equal(filterParcels(next, [], { collected: true }).length, 1);
 });
+
+test('空页中码格式行仅作候选，诊断区分日期与有相邻运单的卡片而不泄露原文', () => {
+  const dateOnly = read('待取件\n未查到100****0000的包裹\n2026-11-08\n加载中');
+  assert.equal(dateOnly.diagnostics.codeLineCount, 1);
+  assert.equal(dateOnly.diagnostics.dateLikeCodeLineCount, 1);
+  assert.equal(dateOnly.diagnostics.linkedCodeLineCount, 0);
+  assert.equal(dateOnly.state, 'error'); // 尚无真实页面证据，不把候选码擅自忽略后清空。
+  const card = read(page);
+  assert.equal(card.diagnostics.linkedCodeLineCount, 2);
+  assert.equal(card.diagnostics.dateLikeCodeLineCount, 0);
+  for (const secret of ['2026-11-08', '100****0000', 'TESTYT0000001', '01-2-0001']) {
+    assert.ok(!JSON.stringify(dateOnly.diagnostics).includes(secret));
+    assert.ok(!JSON.stringify(card.diagnostics).includes(secret));
+  }
+});
