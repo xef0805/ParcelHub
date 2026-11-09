@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import {mergeOfficialSnapshot, filterParcels} from '../preview/model.mjs';
+import {OfficialEmptyConfirmation} from '../preview/service-status.mjs';
 
 const source = await readFile(new URL('../shared/taobao-refresh.js', import.meta.url), 'utf8');
 const parsePage = vm.runInNewContext(await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8'));
@@ -10,16 +11,24 @@ const api = 'mtop.cainiao.pickup.plus.queryMultiStaPackages4Xy';
 const success = {ret: ['SUCCESS::调用成功'], data: {result: {privateTestValue: 'not-for-status', componentList: [
   {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true}]}
 ]}}};
-function setup(request, path = '/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home') {
+function setup(request, path = '/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home', page = {}) {
   let now = 1000;
   const listeners = new Map(), intervals = [];
-  const window = {lib: {mtop: {request}}};
+  class TestDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return now; }
+  }
+  const window = {lib: {mtop: {request}}, localStorage: page.storage};
   const context = vm.createContext({window, location: {hostname: 'pages-fast.m.taobao.com', pathname: path},
-    document: {addEventListener: (event, callback) => listeners.set(event, callback)},
-    Date: {now: () => now}, setInterval: fn => (intervals.push(fn), intervals.length), setTimeout() {}, clearInterval() {}});
+    document: {body: {innerText: page.bodyText || ''}, getElementById: id => page.nodes?.[id] || null,
+      addEventListener(event, callback) {
+        const previous = listeners.get(event);
+        listeners.set(event, previous ? () => { previous(); callback(); } : callback);
+      }},
+    Date: TestDate, setInterval: fn => (intervals.push(fn), intervals.length), setTimeout() {}, clearInterval() {}});
   vm.runInContext(source, context);
   return {window, read: () => window.__tutuTaobaoFreshness?.read(), advance: ms => now += ms, listeners, intervals,
-    inject: () => vm.runInContext(source, context)};
+    inject: () => vm.runInContext(source, context), evaluate: script => vm.runInContext(script, context)};
 }
 const tick = async () => { await Promise.resolve();await Promise.resolve(); };
 
@@ -363,4 +372,135 @@ test('解包后的旧清单不能被旧空页覆盖；缺少活动标签或残�
       parsePage('待取件\n未查到100****0000的包裹')
     ]) assert.notEqual(verify(snapshot).state, snapshot.state);
   }
+});
+
+const pendingPath = '/wow/z/uniapp/1100333/last-mile-fe/m-end-school-tab/home';
+const staleCard = '待取件（1）\n测试北门驿站\n看包裹\n01-2-0003\n今日到站\n中通 TESTZTO00001\n还有包裹未显示？查询取件码\n加载中';
+function emptyManifest(stationGroupList = []) {
+  return {ret: ['SUCCESS::test'], data: {data: {componentList: [
+    {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count: 0}]},
+    {componentCode: 'stationPkgGroup', data: {stationGroupList}}
+  ], staPkgAssembles: []}}};
+}
+
+test('只移除当前待取页的 FCC 首屏快照，实时主体为空也不读取旧快照', () => {
+  const key = 'fcc-cache--' + pendingPath;
+  const values = new Map([[key, 'PRIVATE_OLD_HTML'], ['other-page-cache', 'KEEP'], ['login-state', 'KEEP']]);
+  const page = {bodyText: staleCard, storage: {removeItem: key => values.delete(key)}, nodes: {
+    'ice-container': {innerText: '待取件\n未查到100****0000的包裹'},
+    'fcc-snapshot-placeholder': {remove() {delete page.nodes['fcc-snapshot-placeholder'];}}
+  }};
+  const h = setup(() => Promise.resolve(emptyManifest()), pendingPath, page);
+  assert.equal(values.has(key), false);
+  assert.equal(values.get('login-state'), 'KEEP');
+  assert.equal(values.get('other-page-cache'), 'KEEP');
+  assert.equal(h.read().removedSnapshot, true);
+  assert.equal(page.nodes['fcc-snapshot-placeholder'], undefined);
+  assert.equal(h.window.__tutuTaobaoFreshness.pageText(), page.nodes['ice-container'].innerText);
+  page.nodes['ice-container'].innerText = '';
+  assert.equal(h.window.__tutuTaobaoFreshness.pageText(), '');
+  delete page.nodes['ice-container'];
+  assert.equal(h.window.__tutuTaobaoFreshness.pageText(), staleCard);
+  assert.ok(!JSON.stringify(h.read()).includes('PRIVATE_'));
+});
+
+test('按用户报告回放接口零件、页面残留一件，两次确认后归档且保留手动包裹和历史', async () => {
+  const h = setup(() => Promise.resolve(emptyManifest()));
+  const snapshot = JSON.parse(JSON.stringify(parsePage(staleCard)));
+  assert.equal(snapshot.state, 'ready');
+  assert.equal(snapshot.diagnostics.badgeCount, 1);
+  assert.equal(snapshot.diagnostics.linkedCodeLineCount, 1);
+  const original = mergeOfficialSnapshot({version: 1, customProviders: [], parcels: []}, snapshot);
+  original.parcels.push({...original.parcels[0], id: 'manual-only', source: 'sms', providerID: 'manual', credentials: null,
+    trackingNumber: 'TESTMANUAL0001', smsOriginal: '虚构短信原文'});
+  const before = JSON.stringify(original);
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  assert.equal(verify(snapshot).state, 'loading');
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(h.read().manifest.pendingCount, 0);
+  assert.equal(h.read().manifest.pendingGroupCount, 0);
+  assert.equal(h.read().manifest.responseEmpty, true);
+  const confirmation = new OfficialEmptyConfirmation();
+  const first = confirmation.accepting(JSON.parse(JSON.stringify(verify({...snapshot, readAt: '2026-11-09T08:00:00.000Z'}))));
+  assert.equal(first.state, 'filtered_empty');
+  assert.throws(() => mergeOfficialSnapshot(original, first));
+  const second = confirmation.accepting(JSON.parse(JSON.stringify(verify({...snapshot, readAt: '2026-11-09T08:00:00.750Z'}))));
+  assert.equal(second.state, 'ready');
+  assert.equal(second.expectedCount, 0);
+  const updated = mergeOfficialSnapshot(original, second);
+  assert.deepEqual(filterParcels(updated, []).map(parcel => parcel.id), ['manual-only']);
+  assert.equal(filterParcels(updated, [], {collected: true}).length, 1);
+  assert.equal(updated.parcels.find(parcel => parcel.id === 'manual-only').smsOriginal, '虚构短信原文');
+  assert.equal(JSON.stringify(original), before);
+});
+
+test('零件角标缺少明确空分组、残留非空分组或请求失败时保留记录', async () => {
+  const responses = [
+    emptyManifest([{}]),
+    {ret: ['SUCCESS::test'], data: {data: {componentList: [
+      {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count: 0}]},
+      {componentCode: 'stationPkgGroup', data: {}}
+    ]}}},
+    {ret: ['FAIL_SYS_SERVICE_FAULT']}
+  ];
+  const h = setup(() => Promise.resolve(responses.shift()));
+  for (let i = 0; i < 3; i++) {
+    await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+    const result = h.window.__tutuTaobaoFreshness.verify(parsePage(staleCard));
+    assert.ok(['loading', 'error'].includes(result.state));
+    assert.equal(result.parcels.length, 0);
+    assert.notEqual(result.expectedCount, 0);
+  }
+});
+
+test('明确空接口仍转交登录或验证错误，后续新请求会撤销旧空证据', async () => {
+  let response = emptyManifest();
+  const h = setup(() => Promise.resolve(response));
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(verify(parsePage('请重新登录')).state, 'login_required');
+  assert.equal(verify(parsePage('请完成验证')).state, 'error');
+  assert.equal(verify(parsePage('待取件\n0\n加载中')).state, 'filtered_empty');
+  response = {ret: ['FAIL_SYS_SERVICE_FAULT']};
+  const retry = h.window.lib.mtop.request({api, data: {}});
+  assert.equal(verify(parsePage(staleCard)).state, 'loading');
+  await retry;await tick();h.advance(500);
+  assert.equal(verify(parsePage(staleCard)).state, 'error');
+});
+
+test('执行原生 readPending 的真实脚本，旧快照不阻塞空清单，也不覆盖新到包裹', async () => {
+  const swift = await readFile(new URL('../ios/ParcelHub/ContentView.swift', import.meta.url), 'utf8');
+  const method = swift.slice(swift.indexOf('    func readPending()'), swift.indexOf('    func copyDiagnostics()'));
+  const script = method.match(/let script = """([\s\S]*?)"""/)[1]
+    .replace('\\(reader)', await readFile(new URL('../shared/cainiao-reader.js', import.meta.url), 'utf8'));
+  const page = {bodyText: staleCard, nodes: {'ice-container': {innerText: '待取件\n未查到100****0000的包裹\n加载中'}}};
+  let response = emptyManifest();
+  const h = setup(() => Promise.resolve(response), pendingPath, page);
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  const confirmation = new OfficialEmptyConfirmation();
+  assert.equal(confirmation.accepting(JSON.parse(h.evaluate(script))).state, 'filtered_empty');
+  h.advance(750);
+  assert.equal(confirmation.accepting(JSON.parse(h.evaluate(script))).state, 'ready');
+  response = {ret: ['SUCCESS::test'], data: {data: {componentList: [
+    {componentCode: 'tabInfo', data: [{tabKey: 'PENDING_PICKUP', active: true, count: 1}]}
+  ]}}};
+  page.nodes['ice-container'].innerText = staleCard.replace('TESTZTO00001', 'TESTZTO00002').replace('01-2-0003', '01-2-0004');
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  const next = JSON.parse(h.evaluate(script));
+  assert.equal(next.state, 'ready');
+  assert.equal(next.parcels[0].trackingNumber, 'TESTZTO00002');
+  assert.equal(next.parcels[0].pickupCode, '01-2-0004');
+});
+
+test('指定站点或柜组、时间范围的零件结果不能归档其他地点的包裹', async () => {
+  const h = setup(() => Promise.resolve(emptyManifest()));
+  for (const filter of [{stationCode: 'TEST_SITE'}, {cbntGrpId: 'TEST_CABINET'}, {checkTime: 'TEST_TIME'}, {createTime: 'TEST_TIME'}]) {
+    await h.window.lib.mtop.request({api, data: filter});await tick();h.advance(500);
+    assert.equal(h.read().manifest.fullList, false);
+    assert.equal(h.window.__tutuTaobaoFreshness.verify(parsePage(staleCard)).state, 'error');
+  }
+  await h.window.lib.mtop.request({api, data: {stationCode: 'POINT_0'}});await tick();h.advance(500);
+  assert.equal(h.read().manifest.fullList, true);
+  assert.equal(h.window.__tutuTaobaoFreshness.verify(parsePage(staleCard)).state, 'filtered_empty');
+  assert.ok(!JSON.stringify(h.read()).includes('TEST_'));
 });

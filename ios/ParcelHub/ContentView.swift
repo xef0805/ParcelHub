@@ -785,7 +785,7 @@ struct SettingsView: View {
             Section {
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
             } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.11 · 本地开发版").foregroundStyle(.secondary) }
+            Section("关于涂涂取件") { Text("版本 0.7.12 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }
@@ -1026,8 +1026,9 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         status = "正在读取…"
         let script = """
         (() => {
-          const snapshot = (\(reader))(document.body ? document.body.innerText : '');
           const freshness = window.__tutuTaobaoFreshness;
+          const text = freshness ? freshness.pageText() : (document.body ? document.body.innerText : '');
+          const snapshot = (\(reader))(text);
           if (freshness) return JSON.stringify(freshness.verify(snapshot));
           if (snapshot.state === 'login_required' || snapshot.state === 'error') return JSON.stringify(snapshot);
           return JSON.stringify({state: 'loading', message: '正在确认最新清单…',
@@ -1081,8 +1082,9 @@ final class OfficialPickupSession: NSObject, ObservableObject, WKNavigationDeleg
         let requestGeneration = generation
         let script = """
         (() => {
-          const snapshot = (\(reader))(document.body ? document.body.innerText : '');
           const freshness = window.__tutuTaobaoFreshness;
+          const text = freshness ? freshness.pageText() : (document.body ? document.body.innerText : '');
+          const snapshot = (\(reader))(text);
           return JSON.stringify({query: freshness?.read() ?? {state: 'missing'},
             page: snapshot.diagnostics, parsedState: snapshot.state,
             verifiedState: freshness?.verify(snapshot).state ?? 'missing', message: snapshot.message});
