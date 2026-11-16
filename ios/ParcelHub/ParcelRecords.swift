@@ -33,6 +33,7 @@ struct Parcel: Codable, Identifiable {
     var manualPendingOverride: Bool? = nil
     var collectionConfirmedBySync: Bool? = nil
     var arrivedOn: String? = nil
+    var note: String? = nil
 
     var isCollected: Bool { collectedAt != nil }
     var hasSMS: Bool { !(smsOriginal ?? "").isEmpty }
@@ -103,6 +104,7 @@ enum ParcelIdentity {
                let index = result.firstIndex(where: { !$0.isDemo && text($0.trackingNumber) == text(parcel.trackingNumber) && carrier($0.carrier) == carrier(parcel.carrier) }) {
                 for credential in parcel.pickupCredentials { result[index].attach(credential) }
                 result[index].addedAt = min(result[index].addedAt, parcel.addedAt)
+                if (result[index].note ?? "").isEmpty { result[index].note = parcel.note }
                 result[index].awaitingArrival = (result[index].awaitingArrival == true && parcel.awaitingArrival == true)
                 if result[index].arrivedOn == nil && text(result[index].station) == text(parcel.station) {
                     result[index].arrivedOn = parcel.arrivedOn
@@ -290,5 +292,52 @@ enum AppServiceIssue: Error, LocalizedError, Equatable {
         case NSURLErrorTimedOut: return .timeout
         default: return .unavailable
         }
+    }
+}
+
+struct StationPreference: Codable {
+    var alias: String = ""
+    var pinned: Bool = false
+}
+
+// 撤销只恢复用户操作涉及的字段，保留期间新增的包裹、备注和官方清单信息。
+struct ParcelUndo {
+    enum Kind { case collection, deletion }
+    let id = UUID()
+    let kind: Kind
+    let before: [Parcel]
+    let after: [Parcel]
+    let message: String
+
+    func applying(to records: [Parcel]) -> (records: [Parcel], restored: Int) {
+        var result = records
+        var restored = 0
+        for old in before {
+            guard let expected = after.first(where: { $0.id == old.id }),
+                  let index = result.firstIndex(where: { $0.id == old.id }) else { continue }
+            let current = result[index]
+            switch kind {
+            case .collection:
+                guard current.deletedAt == expected.deletedAt,
+                      current.collectedAt == expected.collectedAt,
+                      current.manualPendingOverride == expected.manualPendingOverride,
+                      current.collectionConfirmedBySync == expected.collectionConfirmedBySync else { continue }
+                result[index].collectedAt = old.collectedAt
+                result[index].manualPendingOverride = old.manualPendingOverride
+                result[index].collectionConfirmedBySync = old.collectionConfirmedBySync
+                // 用户撤销“已取”后仍应可找到该件，即使官方期间已移除它。
+                if old.isPending && !result[index].isPending { result[index].manualPendingOverride = true }
+            case .deletion:
+                guard current.deletedAt == expected.deletedAt, current.deletedAt != nil,
+                      current.collectedAt == expected.collectedAt else { continue }
+                result[index].deletedAt = old.deletedAt
+                result[index].smsOriginal = old.smsOriginal
+                result[index].smsSender = old.smsSender
+                result[index].smsImportedAt = old.smsImportedAt
+                result[index].smsFingerprint = old.smsFingerprint
+            }
+            restored += 1
+        }
+        return (result, restored)
     }
 }

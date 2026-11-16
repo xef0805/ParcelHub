@@ -161,6 +161,37 @@ struct OfficialSnapshotTests {
                 fatalError("Invalid snapshot must not overwrite records")
             } catch is OfficialSnapshotMerge.InvalidSnapshot { }
         }
+        // 用户操作撤销必须与真实官方合并共存，不能回滚整份存档。
+        var noteParcel = first[0]
+        noteParcel.note = "帮家人取"
+        let noteMerged = try OfficialSnapshotMerge.applying(snapshot, to: [noteParcel], now: now)
+        precondition(noteMerged[0].note == "帮家人取")
+        let savedNote = try JSONDecoder().decode(Parcel.self, from: JSONEncoder().encode(noteMerged[0]))
+        precondition(savedNote.note == "帮家人取")
+        var marked = noteParcel
+        marked.toggleCollected(now: now)
+        let receipt = ParcelUndo(kind: .collection, before: [noteParcel], after: [marked], message: "test")
+        var duringSync = try OfficialSnapshotMerge.applying(OfficialPageRead(state: "ready", message: "", parcels: [], expectedCount: 0, readAt: "test"), to: [marked], now: now)
+        duringSync[0].note = "新备注"
+        var unrelated = first[0]; unrelated.id = UUID(); unrelated.trackingNumber = "TEST999999"
+        duringSync.append(unrelated)
+        let undone = receipt.applying(to: duringSync)
+        precondition(undone.restored == 1 && undone.records.count == 2 && undone.records[0].isPending)
+        precondition(undone.records[0].note == "新备注" && undone.records[0].manualPendingOverride == true)
+        var changed = marked; changed.toggleCollected(now: now)
+        precondition(receipt.applying(to: [changed]).restored == 0)
+        var withSMS = marked
+        withSMS.smsOriginal = "虚构短信"; withSMS.smsSender = "测试"; withSMS.smsImportedAt = now
+        var removed = withSMS
+        removed.deletedAt = now; removed.smsOriginal = nil; removed.smsSender = nil; removed.smsImportedAt = nil
+        let deletion = ParcelUndo(kind: .deletion, before: [withSMS], after: [removed], message: "test")
+        removed.lastReadAt = Date(timeIntervalSince1970: 2000)
+        let restoredSMS = deletion.applying(to: [removed])
+        precondition(restoredSMS.restored == 1 && restoredSMS.records[0].smsOriginal == "虚构短信")
+        precondition(restoredSMS.records[0].lastReadAt == removed.lastReadAt && restoredSMS.records[0].collectedAt == now)
+        let stationPreference = StationPreference(alias: "公司楼下", pinned: true)
+        let savedPreference = try JSONDecoder().decode(StationPreference.self, from: JSONEncoder().encode(stationPreference))
+        precondition(savedPreference.alias == "公司楼下" && savedPreference.pinned)
         print("Native snapshot checks passed: empty, legacy migration, source isolation, history, leading zeros, errors and duplicate guards")
     }
 }

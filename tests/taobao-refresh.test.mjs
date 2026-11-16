@@ -80,7 +80,16 @@ test('兼容 JSON 字符串数据与官方回调，原样转交响应及回调�
 });
 
 test('接口报错、登录失效和同步异常不能把旧卡片标为最新', async () => {
-  for (const [ret, state] of [['FAIL_SYS_SESSION_EXPIRED::登录失效', 'login_required'], ['FAIL_SYS_TOKEN_EXOIRED::令牌过期', 'login_required'], ['FAIL_SYS_SERVICE_FAULT::请求失败', 'error']]) {
+  for (const [ret, state] of [
+    ['FAIL_SYS_SESSION_EXPIRED::登录失效', 'login_required'],
+    ['FAIL_SYS_SID_INVALID::会话无效', 'login_required'],
+    ['FAIL_SYS_AUTH_REJECT::认证失效', 'login_required'],
+    ['FAIL_SYS_NEED_LOGIN::需要登录', 'login_required'],
+    ['FAIL_SYS_TOKEN_EXOIRED::令牌过期', 'error'],
+    ['FAIL_SYS_TOKEN_EXPIRED::令牌过期', 'error'],
+    ['FAIL_SYS_TOKEN_EMPTY::缺少令牌', 'error'],
+    ['FAIL_SYS_SERVICE_FAULT::请求失败', 'error']
+  ]) {
     const error = {ret: [ret]};
     const h = setup(() => Promise.reject(error));
     await assert.rejects(h.window.lib.mtop.request({api, data: {}}), value => value === error);
@@ -90,6 +99,30 @@ test('接口报错、登录失效和同步异常不能把旧卡片标为最新',
   const error = new Error('test network error'), h = setup(() => {throw error;});
   assert.throws(() => h.window.lib.mtop.request({api, data: {}}), value => value === error);
   assert.equal(h.read().state, 'error');
+});
+
+test('请求凭证更新失败不要求重登，后续成功查询可以恢复读取，失败期间保留记录', async () => {
+  const row = {providerID: 'taobao', title: '测试包裹', station: '测试驿站', pickupCode: '1-2-3456', carrier: '中通', trackingNumber: 'TESTZTO00001'};
+  const snapshot = {state: 'ready', parcels: [row], expectedCount: 1, readAt: new Date().toISOString()};
+  const state = mergeOfficialSnapshot({version: 1, customProviders: [], parcels: []}, snapshot);
+  const before = JSON.stringify(state);
+  let response = {ret: ['FAIL_SYS_TOKEN_EXOIRED::令牌过期']};
+  const h = setup(() => Promise.resolve(response));
+  const verify = h.window.__tutuTaobaoFreshness.verify;
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  for (const page of [snapshot, {...snapshot, state: 'filtered_empty', parcels: [], expectedCount: null}]) {
+    const blocked = verify(page);
+    assert.equal(blocked.state, 'error');
+    assert.equal(blocked.parcels.length, 0);
+    assert.throws(() => mergeOfficialSnapshot(state, blocked));
+    assert.equal(JSON.stringify(state), before);
+  }
+  // 即使请求 token 的错误是暂时的，真正显示登录页时仍必须让用户完成验证。
+  assert.equal(verify({...snapshot, state: 'login_required'}).state, 'login_required');
+  response = success;
+  await h.window.lib.mtop.request({api, data: {}});await tick();h.advance(500);
+  assert.equal(verify(snapshot), snapshot);
+  assert.equal(mergeOfficialSnapshot(state, verify(snapshot)).parcels.length, 1);
 });
 
 test('并发查询等待全部结束，旧查询的迟到结果不能覆盖较新查询失败', async () => {

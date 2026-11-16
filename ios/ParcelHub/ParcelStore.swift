@@ -13,6 +13,9 @@ final class ParcelStore: ObservableObject {
     @Published private(set) var preferredCredentialID: String?
     @Published private(set) var enabledProviderIDs: [String] = []
     @Published private(set) var identityBindings: [String: IdentityBinding] = [:]
+    @Published private(set) var stationPreferences: [String: StationPreference] = [:]
+    @Published private(set) var pendingUndo: ParcelUndo?
+    private var undoExpiry: Task<Void, Never>?
     @Published var autoSyncEnabled = true {
         didSet { defaults.set(autoSyncEnabled, forKey: "parcelhub.auto-sync.v1") }
     }
@@ -55,6 +58,9 @@ final class ParcelStore: ObservableObject {
             if let data = defaults.data(forKey: "parcelhub.identity-bindings.v1") {
                 identityBindings = try JSONDecoder().decode([String: IdentityBinding].self, from: data).filter { enabledProviderIDs.contains($0.key) }
             }
+            if let data = defaults.data(forKey: "parcelhub.station-preferences.v1") {
+                stationPreferences = try JSONDecoder().decode([String: StationPreference].self, from: data)
+            }
         } catch {
             storageWarning = "本地记录读取失败，原数据未改动"
         }
@@ -92,6 +98,7 @@ final class ParcelStore: ObservableObject {
         ordered.move(fromOffsets: offsets, toOffset: destination)
         providers = ordered + providers.filter { !enabledProviderIDs.contains($0.id) || $0.id == "manual" }
         defaults.set(ordered.map(\.id), forKey: "parcelhub.provider-order.v1")
+        AppFeedback.selection()
     }
 
     func rememberCredential(_ providerID: String, for station: String) {
@@ -171,11 +178,13 @@ final class ParcelStore: ObservableObject {
     }
 
     func deleteCollected(_ id: UUID) {
-        guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == id && $0.isCollected }) else { return }
+        guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == id && $0.isCollected && $0.deletedAt == nil }) else { return }
+        let before = parcels[index]
         parcels[index].deletedAt = Date()
         parcels[index].smsFingerprint = parcels[index].smsFingerprint ?? parcels[index].smsOriginal.map { ParcelIdentity.fingerprint($0) }
         parcels[index].smsOriginal = nil; parcels[index].smsSender = nil; parcels[index].smsImportedAt = nil
         persistParcels()
+        offerUndo(kind: .deletion, before: [before], message: "已删除记录")
     }
 
     func addTracking(number: String, carrier: String, title: String) -> String? {
@@ -203,9 +212,75 @@ final class ParcelStore: ObservableObject {
     }
 
     func toggleCollected(_ parcel: Parcel) {
-        guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == parcel.id }) else { return }
+        guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == parcel.id && $0.deletedAt == nil }) else { return }
+        let before = parcels[index]
         parcels[index].toggleCollected()
         persistParcels()
+        offerUndo(kind: .collection, before: [before], message: before.isCollected ? "已恢复待取" : "已标记取件")
+    }
+
+    func collect(_ ids: Set<UUID>, at station: String) {
+        guard storageWarning == nil else { return }
+        let before = parcels.filter { ids.contains($0.id) && $0.station == station && $0.isPending }
+        guard !before.isEmpty else { return }
+        let chosen = Set(before.map(\.id)), now = Date()
+        for index in parcels.indices where chosen.contains(parcels[index].id) { parcels[index].toggleCollected(now: now) }
+        persistParcels()
+        offerUndo(kind: .collection, before: before, message: "已标记取件 · \(before.count) 件")
+    }
+
+    private func offerUndo(kind: ParcelUndo.Kind, before: [Parcel], message: String) {
+        guard storageWarning == nil else { return }
+        clearUndo()
+        let ids = Set(before.map(\.id))
+        let change = ParcelUndo(kind: kind, before: before, after: parcels.filter { ids.contains($0.id) }, message: message)
+        pendingUndo = change
+        AppFeedback.success()
+        undoExpiry = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 8_000_000_000) } catch { return }
+            if self?.pendingUndo?.id == change.id { self?.clearUndo() }
+        }
+    }
+
+    func clearUndo() { undoExpiry?.cancel(); undoExpiry = nil; pendingUndo = nil }
+
+    func undoLastAction() {
+        guard storageWarning == nil, let change = pendingUndo else { return }
+        let result = change.applying(to: parcels)
+        parcels = result.records
+        clearUndo()
+        persistParcels()
+        NotificationCenter.default.post(name: Notification.Name("ParcelHub.message"), object: result.restored > 0 ? "已撤销" : "记录已变化，未撤销")
+        if result.restored > 0 { AppFeedback.success() }
+    }
+
+    func saveNote(_ value: String, for id: UUID) {
+        guard storageWarning == nil, let index = parcels.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        let text = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+        parcels[index].note = text.isEmpty ? nil : text
+        persistParcels()
+    }
+
+    func stationName(_ station: String) -> String {
+        let alias = stationPreferences[station]?.alias ?? ""
+        return alias.isEmpty ? station : alias
+    }
+
+    func sortedStations(_ stations: [String]) -> [String] {
+        Array(Set(stations)).sorted {
+            let a = stationPreferences[$0]?.pinned == true, b = stationPreferences[$1]?.pinned == true
+            if a != b { return a }
+            let first = stationName($0), second = stationName($1)
+            return first == second ? $0 < $1 : first.localizedStandardCompare(second) == .orderedAscending
+        }
+    }
+
+    func saveStation(_ station: String, alias: String, pinned: Bool) {
+        guard storageWarning == nil else { return }
+        let name = String(alias.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        stationPreferences[station] = StationPreference(alias: name, pinned: pinned)
+        do { defaults.set(try JSONEncoder().encode(stationPreferences), forKey: "parcelhub.station-preferences.v1") }
+        catch { storageWarning = "地点设置保存失败" }
     }
 
     private func persistParcels() {

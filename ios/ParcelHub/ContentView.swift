@@ -18,6 +18,7 @@ struct AppMessage: View {
             ("^已同步 · 新增 ([0-9]+) 件$", "Synced · $1 new pickups"),
             ("^已同步 ([0-9]+) 件待取包裹$", "$1 pickups synced"),
             ("^已归档 ([0-9]+) 件$", "$1 archived"),
+            ("^已标记取件 · ([0-9]+) 件$", "$1 pickups marked collected"),
             ("^沿用(.+)上次地点，请核对$", "Using the last $1 location. Please check"),
             ("^返回后确认：刚才是否进入了(.+)？$", "After returning, confirm: did $1 open?")
         ]
@@ -42,6 +43,7 @@ struct ContentView: View {
     @State private var showingClipboardPrompt = false
     @State private var copyToastID: UUID?
     @State private var showingCopyToast = false
+    @State private var toastMessage = "已复制到剪贴板"
     var body: some View {
         TabView(selection: $selectedTab) {
             PackagesView().tabItem { Label("待取件", systemImage: "shippingbox") }.tag(0)
@@ -72,17 +74,32 @@ struct ContentView: View {
             Button("知道了", role: .cancel) { }
         } message: { Text(LocalizedStringKey(store.storageWarning ?? "")) }
         .overlay(alignment: .bottom) {
-            if showingCopyToast {
-                Text("已复制到剪贴板").font(.subheadline.weight(.medium))
+            VStack(spacing: 8) {
+                if let undo = store.pendingUndo {
+                    HStack {
+                        AppMessage(undo.message).font(.subheadline)
+                        Button("撤销") { store.undoLastAction() }.font(.subheadline.bold()).frame(minWidth: 44, minHeight: 44)
+                    }.padding(.horizontal, 16).background(.regularMaterial, in: Capsule()).shadow(radius: 6, y: 2)
+                }
+                if showingCopyToast {
+                AppMessage(toastMessage).font(.subheadline.weight(.medium))
                     .padding(.horizontal, 20).padding(.vertical, 12)
                     .background(.regularMaterial, in: Capsule()).shadow(radius: 6, y: 2)
-                    .padding(.bottom, 76).transition(.opacity).allowsHitTesting(false)
-            }
+                    .transition(.opacity).allowsHitTesting(false)
+                }
+            }.padding(.horizontal, 16).padding(.bottom, 76)
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ParcelHub.copied"))) { _ in
+            toastMessage = "已复制到剪贴板"
+            AppFeedback.success()
             copyToastID = UUID()
             withAnimation(.easeInOut(duration: 0.2)) { showingCopyToast = true }
             UIAccessibility.post(notification: .announcement, argument: String(localized: "已复制到剪贴板", locale: locale))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ParcelHub.message"))) { message in
+            toastMessage = message.object as? String ?? ""
+            copyToastID = UUID()
+            withAnimation(.easeInOut(duration: 0.2)) { showingCopyToast = true }
         }
         .task(id: copyToastID) {
             guard copyToastID != nil else { return }
@@ -171,12 +188,15 @@ struct PackagesView: View {
     @State private var launchError: String?
     @State private var showingOfficialLogin = false
     @State private var providerAfterBinding: PickupProvider?
+    @State private var editingStation: StationSelection?
+    @State private var batchStation: StationSelection?
+    @AppStorage("parcelhub.large-text.v1") private var largeText = false
     @ScaledMetric(relativeTo: .body) private var summaryHeight: CGFloat = 140
     @ScaledMetric(relativeTo: .body) private var importHeight: CGFloat = 96
 
     private var displayed: [Parcel] {
         let source = store.pending
-        return source.filter { search.isEmpty || [$0.title, $0.station, $0.pickupCode, $0.trackingNumber, $0.carrier, store.provider($0.providerID)?.name ?? ""].joined(separator: " ").localizedCaseInsensitiveContains(search) }
+        return source.filter { search.isEmpty || [$0.title, $0.note ?? "", $0.station, store.stationName($0.station), $0.pickupCode, $0.trackingNumber, $0.carrier, store.provider($0.providerID)?.name ?? ""].joined(separator: " ").localizedCaseInsensitiveContains(search) }
     }
 
     private var displayedWatching: [Parcel] {
@@ -233,10 +253,13 @@ struct PackagesView: View {
                             HStack(spacing: 8) {
                                 if sync.isRefreshing { ProgressView().controlSize(.small) }
                                 else { Image(systemName: sync.needsLogin ? "person.crop.circle.badge.exclamationmark" : "arrow.triangle.2.circlepath") }
-                                AppMessage(sync.status).lineLimit(2)
+                                AppMessage(sync.needsLogin ? "同步已暂停，清单可能未更新" : sync.status).lineLimit(2)
                                 Spacer(minLength: 8)
-                                if let updated = store.lastOfficialReadAt { UpdateStamp(date: updated).fixedSize() }
+                                Button { sync.refresh(force: true) } label: {
+                                    Image(systemName: "arrow.clockwise").frame(width: 44, height: 44)
+                                }.disabled(sync.isRefreshing).accessibilityLabel("刷新待取清单")
                             }
+                            LastSuccessfulSyncView(date: store.lastOfficialReadAt)
                             if sync.needsLogin { Button("重新登录淘宝") { showingOfficialLogin = true }.font(.caption.weight(.semibold)) }
                         }.font(.caption).foregroundStyle(.secondary)
                     }
@@ -244,10 +267,19 @@ struct PackagesView: View {
                     if displayed.isEmpty {
                         ContentUnavailableView(LocalizedStringKey(search.isEmpty ? "暂无本地待取包裹" : "没有匹配的记录"), systemImage: "shippingbox", description: Text(LocalizedStringKey(search.isEmpty ? "登录淘宝后在前台自动检查；短信件可点“手动导入包裹”。" : "试试其他取件码、快递公司或地点。")))
                     }
-                    ForEach(Array(Set(displayed.map(\.station))).sorted(), id: \.self) { station in
+                    ForEach(store.sortedStations(displayed.map(\.station)), id: \.self) { station in
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text(station).font(.title3.bold()).foregroundStyle(.primary)
+                                Menu {
+                                    Button("地点管理", systemImage: "pencil") { editingStation = StationSelection(id: station) }
+                                    Button("批量取件", systemImage: "checkmark.circle") { batchStation = StationSelection(id: station) }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        if store.stationPreferences[station]?.pinned == true { Image(systemName: "pin.fill").font(.caption) }
+                                        Text(store.stationName(station)).font(largeText ? .title2.bold() : .title3.bold())
+                                        Image(systemName: "chevron.down").font(.caption2)
+                                    }.frame(minHeight: 44).contentShape(Rectangle()).foregroundStyle(.primary)
+                                }.accessibilityHint("地点管理与批量取件")
                                 Spacer(minLength: 12)
                                 Button {
                                     if let id = store.stationCredentials[station], let provider = store.provider(id) { smsStation = station; openCredential(provider) }
@@ -297,6 +329,8 @@ struct PackagesView: View {
             }
             .fullScreenCover(item: $selectedProvider) { PickupEntryView(provider: $0, initialError: launchError) }
             .fullScreenCover(isPresented: $showingOfficialLogin) { OfficialPickupView(initialPage: 0) }
+            .sheet(item: $editingStation) { StationEditorView(station: $0.id) }
+            .sheet(item: $batchStation) { BatchCollectionView(station: $0.id) }
         }
     }
     private func receiveClipboardRequest() {
@@ -313,6 +347,10 @@ struct ParcelCard: View {
     @EnvironmentObject private var store: ParcelStore
     @EnvironmentObject private var clipboard: ClipboardImportController
     @State private var showingSMS = false
+    @State private var showingNote = false
+    @AppStorage("parcelhub.large-text.v1") private var largeText = false
+    @AppStorage("parcelhub.density.v1") private var density = "compact"
+    @ScaledMetric(relativeTo: .title2) private var codeSize: CGFloat = 28
     private func copy(_ value: String) {
         UIPasteboard.general.string = value
         clipboard.ignoreCurrentChange()
@@ -324,7 +362,7 @@ struct ParcelCard: View {
                 .lineLimit(1).minimumScaleFactor(0.65).textSelection(.enabled)
             Button { copy(parcel.trackingNumber) } label: {
                 Image(systemName: "doc.on.doc").font(.caption2)
-                    .frame(width: 26, height: 24).contentShape(Rectangle())
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("复制运单号")
         }
     }
@@ -347,7 +385,8 @@ struct ParcelCard: View {
                     BrandMark(asset: asset, fallback: "shippingbox", label: parcel.carrier, size: 40)
                 } else if let provider = store.provider(parcel.providerID) { ProviderMark(provider: provider, size: 40) }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(parcel.title).font(.system(size: 16, weight: .semibold)).lineLimit(2)
+                    Text(parcel.title).font(largeText ? .headline : .subheadline.weight(.semibold)).lineLimit(2)
+                        .onTapGesture { showingNote = true }.accessibilityAddTraits(.isButton).accessibilityHint("编辑备注")
                     metadata
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Button { store.toggleCollected(parcel) } label: {
@@ -358,14 +397,14 @@ struct ParcelCard: View {
             }
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(parcel.pickupCode).font(.system(size: 28, weight: .semibold, design: .monospaced)).textSelection(.enabled)
-                        .minimumScaleFactor(0.6).lineLimit(1)
+                    Text(parcel.pickupCode).font(.system(size: largeText ? codeSize * 1.22 : codeSize, weight: .semibold, design: .monospaced)).textSelection(.enabled)
+                        .minimumScaleFactor(0.75).lineLimit(largeText ? 2 : 1)
                     if !parcel.isCollected && ParcelArrival.daysAgo(on: parcel.arrivedOn) != nil { ArrivalStamp(day: parcel.arrivedOn) }
                 }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
                 VStack(alignment: .trailing, spacing: 3) {
                     if !parcel.isCollected {
                         Button("复制") { copy(parcel.pickupCode) }
-                            .font(.caption).frame(minHeight: 24)
+                            .font(.caption).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     } else if parcel.hasSMS {
                         Button { showingSMS = true } label: {
                             Image(systemName: "message").font(.caption).frame(width: 28, height: 24)
@@ -373,13 +412,22 @@ struct ParcelCard: View {
                     }
                 }.fixedSize().padding(.top, 4)
             }
+            if let note = parcel.note, !note.isEmpty {
+                Button { showingNote = true } label: {
+                    Label(note, systemImage: "note.text").font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }.accessibilityLabel("编辑备注")
+            }
             let alternatives = parcel.pickupCredentials.filter { $0.isCurrent && !$0.pickupCode.isEmpty && $0.pickupCode != parcel.pickupCode }
             ForEach(Array(alternatives.enumerated()), id: \.offset) { _, credential in
                 Text("\(store.provider(credential.providerID)?.name ?? "其他来源")取件码 · \(credential.pickupCode)")
                     .font(.caption).foregroundStyle(.secondary)
             }
-        }.padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
+        }.padding(density == "comfortable" ? 20 : 12).background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
             .contentShape(Rectangle()).buttonStyle(PressFeedbackStyle())
+            .contextMenu { Button("编辑备注", systemImage: "note.text") { showingNote = true } }
+            .accessibilityAction(named: Text("编辑备注")) { showingNote = true }
+            .sheet(isPresented: $showingNote) { ParcelNoteView(parcel: parcel) }
             .fullScreenCover(isPresented: $showingSMS) { NavigationStack { SMSCredentialView(parcelID: parcel.id) } }
     }
 }
@@ -645,7 +693,7 @@ struct CollectedParcelsView: View {
     @State private var search = ""
     @State private var openDeletionID: UUID?
     private var records: [Parcel] {
-        store.collected.filter { search.isEmpty || [$0.title, $0.station, $0.pickupCode, $0.carrier, $0.trackingNumber].joined(separator: " ").localizedCaseInsensitiveContains(search) }
+        store.collected.filter { search.isEmpty || [$0.title, $0.note ?? "", $0.station, store.stationName($0.station), $0.pickupCode, $0.carrier, $0.trackingNumber].joined(separator: " ").localizedCaseInsensitiveContains(search) }
             .sorted { ($0.collectedAt ?? .distantPast) > ($1.collectedAt ?? .distantPast) }
     }
     private var days: [Date] {
@@ -658,7 +706,7 @@ struct CollectedParcelsView: View {
                 let daily = records.filter { Calendar.current.isDate($0.collectedAt ?? .distantPast, inSameDayAs: day) }
                 Section {
                     ForEach(Array(Set(daily.map(\.station))).sorted(), id: \.self) { station in
-                        Text(station).font(.headline).foregroundStyle(Palette.blue)
+                        Text(store.stationName(station)).font(.headline).foregroundStyle(Palette.blue)
                             .listRowInsets(EdgeInsets(top: 20, leading: 12, bottom: 10, trailing: 12))
                             .listRowBackground(Color.clear).listRowSeparator(.hidden)
                         ForEach(daily.filter { $0.station == station }) { parcel in
@@ -755,6 +803,8 @@ struct SettingsView: View {
     @AppStorage("parcelhub.appearance.v1") private var appearance = "system"
     @AppStorage("parcelhub.language.v1") private var language = "zh-Hans"
     @State private var officialLogin = false
+    @AppStorage("parcelhub.haptics.v1") private var haptics = true
+    @AppStorage("parcelhub.privacy-shield.v1") private var privacyShield = true
     var body: some View {
         List {
             Section("通用") {
@@ -769,6 +819,8 @@ struct SettingsView: View {
                 NavigationLink { LanguageSettingsView() } label: {
                     HStack { SettingsRowLabel("语言", symbol: "globe"); Spacer(); Text(verbatim: language == "en" ? "English" : "简体中文").font(.subheadline).foregroundStyle(.secondary) }
                 }
+                NavigationLink { StationManagementView() } label: { SettingsRowLabel("地点管理", symbol: "mappin.and.ellipse", color: .orange) }
+                Toggle(isOn: $haptics) { SettingsRowLabel("轻触反馈", symbol: "hand.tap", color: .purple) }.tint(.green)
             }
             Section {
                 Toggle(isOn: $store.autoSyncEnabled) { SettingsRowLabel("前台自动刷新", symbol: "arrow.triangle.2.circlepath", color: .green) }
@@ -783,9 +835,10 @@ struct SettingsView: View {
                 NavigationLink { ArrivalMonitoringView() } label: { SettingsRowLabel("到站监控与接入状态", symbol: "shippingbox", color: .green) }
             }
             Section {
+                Toggle(isOn: $privacyShield) { SettingsRowLabel("后台隐私遮罩", symbol: "eye.slash", color: .purple) }.tint(.green)
                 NavigationLink { LocalDataSettingsView() } label: { SettingsRowLabel("短信与本地记录", symbol: "message.fill", color: .green) }
-            } header: { Text("数据与隐私") } footer: { Text("记录仅保存在本机，不读取短信收件箱。") }
-            Section("关于涂涂取件") { Text("版本 0.7.12 · 本地开发版").foregroundStyle(.secondary) }
+            } header: { Text("数据与隐私") } footer: { Text("后台遮罩隐藏多任务预览中的包裹和短信。记录仅保存在本机。") }
+            Section("关于涂涂取件") { Text("版本 0.7.13 · 本地开发版").foregroundStyle(.secondary) }
         }.listStyle(.insetGrouped).navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $officialLogin) { OfficialPickupView(initialPage: 0) }
     }
@@ -839,6 +892,8 @@ struct BindingGuideView: View {
 
 struct AppearanceSettingsView: View {
     @AppStorage("parcelhub.appearance.v1") private var appearance = "system"
+    @AppStorage("parcelhub.large-text.v1") private var largeText = false
+    @AppStorage("parcelhub.density.v1") private var density = "compact"
     var body: some View {
         Form {
             Section("外观") {
@@ -847,6 +902,10 @@ struct AppearanceSettingsView: View {
                     Text("浅色").tag("light")
                     Text("深色").tag("dark")
                 }.pickerStyle(.inline).labelsHidden()
+            }
+            Section("包裹显示") {
+                Picker("字号", selection: $largeText) { Text("标准").tag(false); Text("大字").tag(true) }.pickerStyle(.segmented)
+                Picker("显示密度", selection: $density) { Text("紧凑").tag("compact"); Text("舒适").tag("comfortable") }.pickerStyle(.segmented)
             }
             Section { Text("外观影响应用和短信页，官方网页保持原样。")
                     .font(.caption).foregroundStyle(.secondary) }

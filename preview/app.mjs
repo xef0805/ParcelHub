@@ -1,4 +1,5 @@
 import { STORAGE_KEY, addParcel, filterWatching, toggleCollected, filterParcels, validateSavedState, mergeOfficialSnapshot, credentialProviders, reorderProvider, arrivalLabel, deleteCollected, pickupCredentials, groupCollected, bindStationCredential, boundStationProvider } from './model.mjs';
+import {stationName, sortedStations, saveStationPreference, saveParcelNote, parcelAction, undoParcelAction, syncAge} from './experience.mjs';
 import { displayPreferences, localizeDOM } from './i18n.mjs';
 import { ModalNavigation } from './modal-navigation.mjs';
 import { SERVICE_MESSAGES, statusForSnapshot, OfficialEmptyConfirmation } from './service-status.mjs';
@@ -38,6 +39,8 @@ function applyDisplayPreferences() {
   document.documentElement.classList.toggle('theme-light',appearance==='light');
   document.documentElement.classList.toggle('theme-dark',appearance==='dark');
   document.documentElement.lang=language;
+  document.documentElement.classList.toggle('large-text',state.largeText===true);
+  document.documentElement.classList.toggle('comfortable',state.density==='comfortable');
   localizeDOM(document.body,language,english);
 }
 new MutationObserver(()=>localizeDOM(document.body,displayPreferences(state).language,english))
@@ -68,7 +71,7 @@ function card(p) {
   const alternatives=pickupCredentials(p).filter(c=>c.isCurrent&&c.pickupCode&&c.pickupCode!==p.pickupCode);
   const tracking=p.trackingNumber?`<span aria-hidden="true">·</span><span class="tracking-inline"><span class="tracking-number" data-user-content title="${esc(p.trackingNumber)}">${esc(p.trackingNumber)}</span><button class="copy-tracking" data-copy-tracking="${esc(p.id)}" aria-label="复制运单号">${copyIcon}</button></span>`:'';
   const action=p.collectedAt?(p.smsOriginal?`<button class="history-sms-button" data-sms="${esc(p.id)}" aria-label="短信身份码">✉</button>`:''):`<button data-copy="${esc(p.id)}">复制</button>`;
-  const article=`<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier)||p.providerID)}<div class="parcel-info"><h3 data-user-content>${esc(p.title)}</h3><div class="parcel-meta"><span data-user-content>${esc(p.carrier||'快递')}</span>${tracking}</div></div><button class="collect-button" data-collect="${esc(p.id)}">${p.collectedAt?'恢复待取':'我已取件'}</button></div><div class="code-row"><div class="code-details"><strong>${esc(p.pickupCode)}</strong>${arrivalStamp(p)}</div><div class="code-actions">${action}</div></div>${alternatives.map(c=>`<p class="tracking-line">${esc(providers().find(x=>x.id===c.providerID)?.name||'其他来源')}取件码 · ${esc(c.pickupCode)}</p>`).join('')}</article>`;
+  const article=`<article class="parcel-card"><div class="parcel-top">${mark(carrierID(p.carrier)||p.providerID)}<div class="parcel-info"><h3><button class="parcel-title-button" data-note="${esc(p.id)}" title="编辑备注"><span data-user-content>${esc(p.title)}</span></button></h3><div class="parcel-meta"><span data-user-content>${esc(p.carrier||'快递')}</span>${tracking}</div></div><button class="collect-button" data-collect="${esc(p.id)}">${p.collectedAt?'恢复待取':'我已取件'}</button></div><div class="code-row"><div class="code-details"><strong>${esc(p.pickupCode)}</strong>${arrivalStamp(p)}</div><div class="code-actions">${action}</div></div>${p.note?`<button class="parcel-note" data-note="${esc(p.id)}" aria-label="编辑备注"><span data-user-content>${esc(p.note)}</span></button>`:''}${alternatives.map(c=>`<p class="tracking-line">${esc(providers().find(x=>x.id===c.providerID)?.name||'其他来源')}取件码 · ${esc(c.pickupCode)}</p>`).join('')}</article>`;
   return p.collectedAt?`<div class="history-swipe" data-history-swipe="${esc(p.id)}"><button class="history-delete" data-delete-collected="${esc(p.id)}" aria-label="删除${esc(p.title)}" tabindex="-1">${trashIcon}</button>${article}</div>`:article;
 }
 function smsView(id){
@@ -88,14 +91,14 @@ function render() {
   const pending = filterParcels(records, providers());
   $('#pending-count').textContent = pending.length;
   $('#station-count').textContent = new Set(pending.map(p => p.station)).size;
-  $('#sync-updated').innerHTML=state.lastOfficialReadAt?updateStamp(state.lastOfficialReadAt):'↻';
+  $('#sync-updated').textContent='↻';updateSyncAge();
   const visible = filterParcels(records, providers(), {search:$('#search').value});
-  const stations = [...new Set(visible.map(p => p.station))];
+  const stations = sortedStations(state,visible.map(p => p.station));
   const stationLabel=station=>{const bound=boundStationProvider(state,station,providers());return !bound?'选择身份码':bound.id==='sms'?'短信身份码':bound.name+'身份码';};
-  $('#parcel-list').innerHTML = visible.length ? stations.map(station => `<section class="station-group"><div class="station-tools"><h3 class="station-heading" data-user-content>⌖ ${esc(station)}</h3><button class="text-button" data-station="${esc(station)}">${esc(stationLabel(station))}</button></div>${visible.filter(p => p.station === station).map(card).join('')}</section>`).join('') : '<div class="empty"><strong>暂无待取包裹</strong>短信通知可点击“手动导入包裹”<br>已取历史已移至“我的”</div>';
+  $('#parcel-list').innerHTML = visible.length ? stations.map(station => `<section class="station-group"><div class="station-tools"><h3 class="station-heading"><button class="station-name-button" data-station-menu="${esc(station)}"><span data-user-content>${state.stationPreferences?.[station]?.pinned?"⌖ ":""}${esc(stationName(state,station))}</span><small>⌄</small></button></h3><button class="text-button" data-station="${esc(station)}">${esc(stationLabel(station))}</button></div>${visible.filter(p => p.station === station).map(card).join('')}</section>`).join('') : '<div class="empty"><strong>暂无待取包裹</strong>短信通知可点击“手动导入包裹”<br>已取历史已移至“我的”</div>';
   const collected = filterParcels(records, providers(), {collected:true, search:$('#history-search').value});
   $('#collected-count').textContent = filterParcels(records, providers(), {collected:true}).length;
-  $('#collected-list').innerHTML = collected.length ? groupCollected(collected).map(group=>`<section class="history-day"><h3>${esc(group.day)}</h3>${group.stations.map(place=>`<section class="station-group"><h4 data-user-content>${esc(place.station)}</h4>${place.parcels.map(card).join('')}</section>`).join('')}</section>`).join('') : '<div class="empty">暂无已取记录</div>';
+  $('#collected-list').innerHTML = collected.length ? groupCollected(collected).map(group=>`<section class="history-day"><h3>${esc(group.day)}</h3>${group.stations.map(place=>`<section class="station-group"><h4 data-user-content>${esc(stationName(state,place.station))}</h4>${place.parcels.map(card).join('')}</section>`).join('')}</section>`).join('') : '<div class="empty">暂无已取记录</div>';
   const watching=filterWatching(records).filter(p=>!$('#search').value.trim()||[p.title,p.carrier,p.trackingNumber].join(' ').toLowerCase().includes($('#search').value.trim().toLowerCase()));
   $('#watching-panel').hidden=!watching.length;
   $('#watching-count').textContent=watching.length;
@@ -157,7 +160,7 @@ function officialLogin() {
   $('#open-official-login').onclick=()=>{const message=isOffline()?SERVICE_MESSAGES.offline:!openExternal(catalog.find(p=>p.id==='taobao').parcelsURL)?'页面未能打开，请允许打开官方页面后重试。':null;if(message){$('#login-error').hidden=false;$('#login-error').textContent=message;}};
 }
 const heading = title => `<div class="modal-head"><h2>${esc(title)}</h2><button class="close-modal" aria-label="关闭">✕</button></div>`;
-async function copy(text) { try { await navigator.clipboard.writeText(text); notify('已复制到剪贴板',1800); } catch { notify('请手动选中复制'); } }
+async function copy(text) { try { await navigator.clipboard.writeText(text); notify('已复制到剪贴板',1800);feedback(); } catch { notify('请手动选中复制'); } }
 function bindingGuide() {
   return `<section class="binding-guide"><h3>如何获取小程序链接</h3><p class="form-note">以兔喜为例，其他平台菜单可能不同。</p><div class="guide-steps">${[['binding-menu.jpg','1','打开小程序右上角“…” → 添加到桌面'],['binding-safari-url.jpg','2','在 Safari 复制地址栏完整链接']].map(([file,step,label])=>`<button type="button" class="guide-step" data-guide-image="${file}"><span class="guide-step-title"><b>${step}</b><span>${label}</span></span><img src="/preview/assets/${file}" alt="${label}"><small>点击截图可放大</small></button>`).join('')}</div><p class="form-note">复制网址后返回粘贴，无需添加到主屏幕。</p></section>`;
 }
@@ -283,8 +286,11 @@ function settingsLink(id,title,icon,detail='') {return `<button class="settings-
 function settingsToggle(id,title,icon,enabled) {return `<label class="settings-switch-row">${settingsIcon(icon)}<span class="settings-row-title">${title}</span><span class="ios-switch"><input id="${id}" type="checkbox" role="switch" aria-label="${title}" ${enabled?'checked':''}><span class="switch-track"></span></span></label>`;}
 function settings() {
   const preferences=displayPreferences(state),appearance={system:'跟随系统',light:'浅色',dark:'深色'}[preferences.appearance];
-  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.12</p>`);
+  open(`${heading('设置')}<section class="ios-settings-section"><h3>通用</h3><div class="ios-settings-group">${settingsLink('appearance-settings','界面与显示','appearance',appearance)}${settingsLink('language-settings','语言','language',preferences.language==='en'?'English':'简体中文')}${settingsLink('station-management','地点管理','pass')}${settingsToggle('haptics-setting','轻触反馈','pass',state.hapticsEnabled!==false)}</div></section><section class="ios-settings-section"><h3>自动检查</h3><div class="ios-settings-group">${settingsToggle('auto-sync','前台自动刷新','sync',state.autoSyncEnabled!==false)}${settingsToggle('clipboard-detection','剪贴板智能识别','clipboard',state.clipboardDetectionEnabled!==false)}${settingsLink('settings-login','淘宝登录与官方清单','pass')}</div><p class="settings-footer">自动刷新仅支持淘宝，剪贴板导入需确认。</p></section><section class="ios-settings-section"><h3>身份码</h3><div class="ios-settings-group">${settingsLink('manage-station-bindings','地点身份码绑定','pass')}${settingsLink('manage-mini-programs','小程序入口绑定','link')}${settingsLink('show-monitoring','到站监控与接入状态','sync')}</div></section><section class="ios-settings-section"><h3>数据与隐私</h3><div class="ios-settings-group">${settingsToggle('privacy-setting','后台隐私遮罩','pass',state.privacyShieldEnabled!==false)}${settingsLink('local-data-settings','短信与本地记录','data')}</div><p class="settings-footer">记录仅保存在本机，不读取短信收件箱。</p></section><p class="settings-version">涂涂取件 0.7.13</p>`);
   modal.classList.add('settings-dialog');
+  $('#station-management').onclick=()=>pushSettingsPage(stationManagement);
+  $('#haptics-setting').onchange=event=>save({...state,hapticsEnabled:event.target.checked});
+  $('#privacy-setting').onchange=event=>save({...state,privacyShieldEnabled:event.target.checked});
   $('#auto-sync').onchange=event=>save({...state,autoSyncEnabled:event.target.checked});
   $('#clipboard-detection').onchange=event=>{save({...state,clipboardDetectionEnabled:event.target.checked});if(!event.target.checked){clipboardCandidate=null;$('#clipboard-modal').close();}else{lastClipboardText='';checkClipboard();}};
   $('#appearance-settings').onclick=()=>pushSettingsPage(appearanceSettings);$('#language-settings').onclick=()=>pushSettingsPage(languageSettings);$('#settings-login').onclick=()=>pushSettingsPage(officialLogin);
@@ -297,6 +303,10 @@ function settingsSubpage(title,content) {
 function appearanceSettings() {
   const selected=displayPreferences(state).appearance;
   settingsSubpage('界面与显示',`<div class="settings-group">${[['system','跟随系统'],['light','浅色'],['dark','深色']].map(([value,label])=>`<label class="choice-row"><input type="radio" name="appearance" value="${value}" ${selected===value?'checked':''}><span>${label}</span></label>`).join('')}</div><p class="hint">外观影响应用和短信页，官方网页保持原样。</p>`);
+  $('#modal .modal-body').insertAdjacentHTML('beforeend',`<h3>包裹显示</h3><div class="settings-group">${settingsToggle('large-text-setting','大字','appearance',state.largeText===true)}<label class="settings-switch-row"><span>显示密度</span><select id="density-setting"><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></label></div>`);
+  $('#large-text-setting').onchange=event=>save({...state,largeText:event.target.checked});
+  $('#density-setting').value=state.density==='comfortable'?'comfortable':'compact';
+  $('#density-setting').onchange=event=>save({...state,density:event.target.value});
   document.querySelectorAll('[name="appearance"]').forEach(input=>input.onchange=()=>save({...state,appearance:input.value}));
 }
 function languageSettings() {
@@ -309,7 +319,7 @@ async function refresh() {
   const loginRequired=testing&&testServiceState==='login';
   $('#login-retry').hidden=!loginRequired;
   if(isOffline()){emptyConfirmation.reset();$('#sync-status').textContent=SERVICE_MESSAGES.offline;return;}
-  if(loginRequired){emptyConfirmation.reset();$('#sync-status').textContent=SERVICE_MESSAGES.login;return;}
+  if(loginRequired){emptyConfirmation.reset();$('#sync-status').textContent='同步已暂停，清单可能未更新';return;}
   if(testing){$('#sync-status').textContent='测试模式 · 不访问真实包裹快照';return;}
   if(refreshingSnapshot)return;
   refreshingSnapshot=true;
@@ -325,10 +335,10 @@ async function refresh() {
     }
     if(isOffline()){emptyConfirmation.reset();$('#sync-status').textContent=SERVICE_MESSAGES.offline;return;}
     const issue=statusForSnapshot(snapshot);
-    if(issue){$('#sync-status').textContent=issue;$('#login-retry').hidden=snapshot.state!=='login_required';return;}
+    if(issue){$('#sync-status').textContent=snapshot.state==='login_required'?'同步已暂停，清单可能未更新':issue;$('#login-retry').hidden=snapshot.state!=='login_required';return;}
     if(snapshot.readAt!==state.lastOfficialReadAt)save(mergeOfficialSnapshot(state,snapshot));
     $('#sync-status').textContent='已同步淘宝';
-    $('#sync-updated').innerHTML=updateStamp(snapshot.readAt);
+    updateSyncAge();
   } catch {emptyConfirmation.reset();$('#sync-status').textContent=isOffline()?SERVICE_MESSAGES.offline:'暂未读到清单，记录已保留';}
   finally {refreshingSnapshot=false;}
 }
@@ -350,8 +360,10 @@ document.addEventListener('click',event=>{
   if(control.dataset.copyTracking){const p=state.parcels.find(p=>p.id===control.dataset.copyTracking);if(p){lastClipboardText=p.trackingNumber;copy(p.trackingNumber);}}
   if(control.dataset.sms)smsView(control.dataset.sms);
   if(['binding-menu.jpg','binding-safari-url.jpg'].includes(control.dataset.guideImage)){$('#guide-full-image').src='/preview/assets/'+control.dataset.guideImage;$('#guide-modal').showModal();}
-  if(control.dataset.deleteCollected){save(deleteCollected(state,control.dataset.deleteCollected));notify('已删除已取记录');}
-  if(control.dataset.collect){save(toggleCollected(state,control.dataset.collect));notify('记录已更新');}
+  if(control.dataset.deleteCollected)performAction([control.dataset.deleteCollected],'delete');
+  if(control.dataset.collect)performAction([control.dataset.collect],'collect');
+  if(control.dataset.note)noteEditor(control.dataset.note);
+  if(control.dataset.stationMenu)stationMenu(control.dataset.stationMenu);
   if(control.dataset.copy){const p=state.parcels.find(p=>p.id===control.dataset.copy);if(p)copy(p.pickupCode);}
   if(control.classList.contains('close-modal'))modal.close();
 });
@@ -366,6 +378,57 @@ $('#search').oninput=render;$('#history-search').oninput=render;
 $('#show-collected').onclick=()=>{$('#history-panel').hidden=!$('#history-panel').hidden;};$('#show-settings').onclick=startSettings;
 $('#refresh-snapshot').onclick=refresh;
 $('.brand').onclick=event=>{event.preventDefault();page('packages');};
+let undoReceipt=null,undoTimer;
+function clearUndo() {clearTimeout(undoTimer);undoReceipt=null;$('#undo-toast').hidden=true;}
+function performAction(ids,kind,station) {
+  const result=parcelAction(state,ids,kind,station);
+  if(!result.receipt.before.length)return;
+  save(result.state);clearUndo();undoReceipt=result.receipt;
+  const label=kind==='delete'?'已删除记录':kind==='batch'?'已标记取件':result.receipt.before[0].collectedAt?'已恢复待取':'已标记取件';
+  $('#undo-label').textContent=label;$('#undo-toast').hidden=false;
+  localizeDOM($('#undo-toast'),displayPreferences(state).language,english);
+  undoTimer=setTimeout(clearUndo,8000);feedback();
+}
+function feedback(){if(state?.hapticsEnabled!==false)navigator.vibrate?.(8);}
+function noteEditor(id) {
+  const p=state.parcels.find(p=>p.id===id&&!p.deletedAt);if(!p)return;
+  open(`${heading('包裹备注')}<form class="modal-form" id="note-form"><p data-user-content>${esc(p.title)}</p><label class="field">包裹备注<textarea id="parcel-note" maxlength="240" placeholder="例如：鞋子、帮家人取">${esc(p.note||'')}</textarea></label><p class="hint">最多120字，自动同步不会覆盖。</p><p id="note-error" class="error" role="alert" hidden></p><button class="button primary" type="submit">保存</button></form>`);
+  $('#note-form').onsubmit=event=>{event.preventDefault();try{save(saveParcelNote(state,id,$('#parcel-note').value));modal.close();notify('已保存备注');}catch(error){$('#note-error').hidden=false;$('#note-error').textContent=error.message;}};
+}
+function stationMenu(station) {
+  open(`${heading(stationName(state,station))}<div class="modal-form"><button class="button secondary" id="edit-station">地点管理</button><button class="button primary" id="batch-station">批量取件</button></div>`);
+  $('#edit-station').onclick=()=>stationEditor(station);$('#batch-station').onclick=()=>batchCollection(station);
+}
+function stationManagement() {
+  const stations=sortedStations(state,[...state.parcels.filter(p=>!p.isDemo&&!p.deletedAt).map(p=>p.station),...Object.keys(state.stationPreferences||{}),...Object.keys(state.stationCredentials||{})]).filter(Boolean);
+  settingsSubpage('地点管理',`<div class="settings-group">${stations.length?stations.map(station=>`<button class="settings-link" data-edit-station="${esc(station)}"><span data-user-content>${esc(stationName(state,station))}</span><span>${state.stationPreferences?.[station]?.pinned?'⌖':'›'}</span></button>`).join(''):'<p class="hint">有包裹地点后，可在这里设置。</p>'}</div>`);
+  document.querySelectorAll('[data-edit-station]').forEach(button=>button.onclick=()=>pushSettingsPage(()=>stationEditor(button.dataset.editStation)));
+}
+function stationEditor(station) {
+  const preference=state.stationPreferences?.[station]||{};
+  open(`${heading('地点管理')}<form id="station-form" class="modal-form"><p class="hint" data-user-content>${esc(station)}</p><label class="field">显示名称（可选）<input id="station-alias" maxlength="80" value="${esc(preference.alias||'')}"></label>${settingsToggle('station-pinned','置顶此地点','pass',preference.pinned===true)}<p class="hint">只修改显示名称，不影响包裹同步和身份码绑定。</p><p id="station-error" class="error" role="alert" hidden></p><button class="button primary" type="submit">保存</button></form>`);
+  $('#station-form').onsubmit=event=>{event.preventDefault();try{save(saveStationPreference(state,station,$('#station-alias').value,$('#station-pinned').checked));finishModalAction();notify('地点设置已保存');}catch(error){$('#station-error').hidden=false;$('#station-error').textContent=error.message;}};
+}
+function batchCollection(station) {
+  const rows=filterParcels(state,providers()).filter(p=>!p.isDemo&&p.station===station);
+  open(`${heading('批量取件')}<form id="batch-form" class="modal-form"><p data-user-content>${esc(stationName(state,station))}</p><div class="batch-rows">${rows.map(p=>`<label class="batch-row"><input type="checkbox" name="batch-parcel" value="${esc(p.id)}"><span><strong data-user-content>${esc(p.title)}</strong><span data-user-content>${esc(p.pickupCode)}</span>${p.note?`<small data-user-content>${esc(p.note)}</small>`:''}</span></label>`).join('')}</div><p class="hint">勾选实际取走的包裹，完成后可撤销。</p><button id="batch-submit" type="submit" class="button primary" disabled>标记已取</button></form>`);
+  const selected=()=>[...document.querySelectorAll('[name="batch-parcel"]:checked')].map(box=>box.value);
+  $('#batch-form').onchange=()=>{$('#batch-submit').disabled=!selected().length;};
+  $('#batch-form').onsubmit=event=>{event.preventDefault();performAction(selected(),'batch',station);modal.close();};
+}
+function updateSyncAge() {
+  if(!state)return;
+  $('#last-sync-age').textContent=(displayPreferences(state).language==='en'?'Last successful sync: ':'上次成功同步：')+syncAge(state.lastOfficialReadAt,new Date(),displayPreferences(state).language);
+}
+$('#undo-action').onclick=()=>{if(!undoReceipt)return;const result=undoParcelAction(state,undoReceipt);save(result.state);clearUndo();notify(result.restored?'已撤销':'记录已变化，未撤销');feedback();};
+document.addEventListener('visibilitychange',()=>{
+  const shield=$('#privacy-shield');
+  if(document.hidden&&state?.privacyShieldEnabled!==false){shield.hidden=false;if(!shield.open)shield.showModal();}
+  else {if(shield.open)shield.close();shield.hidden=true;}
+  if(document.hidden)clearUndo();else updateSyncAge();
+});
+setInterval(updateSyncAge,60000);
+
 try {
   const [catalogResponse,assetResponse,readerResponse,linkResponse,importResponse]=await Promise.all(['/shared/catalog.json','/shared/brand-assets.json','/shared/sms-reader.js','/shared/identity-link.js','/shared/import-reader.js'].map(url=>fetch(url)));
   if (![catalogResponse,assetResponse,readerResponse,linkResponse,importResponse].every(r=>r.ok))throw new Error('本地资源加载失败，请重启预览服务');
@@ -431,7 +494,7 @@ function finishProviderDrag(cancelled=false){
   const drag=providerDrag;if(!drag)return;providerDrag=null;
   if(drag.moved&&!cancelled&&drag.target){
     const destination=[...$('#provider-grid').children].indexOf(drag.target);
-    save(reorderProvider(state,ordered(),drag.id,destination));suppressEntryUntil=Date.now()+400;
+    save(reorderProvider(state,ordered(),drag.id,destination));feedback();suppressEntryUntil=Date.now()+400;
   }else render();
 }
 document.addEventListener('pointerup',()=>finishProviderDrag());

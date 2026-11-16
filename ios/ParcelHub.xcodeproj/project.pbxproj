@@ -5,6 +5,8 @@
 	};
 	"objectVersion" = 56;
 	"objects" = {
+        "AA0713000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "ExperienceViews.swift"; "sourceTree" = "<group>"; };
+        "BB0713000000000000000001" = { "isa" = "PBXBuildFile"; "fileRef" = "AA0713000000000000000001"; };
         "AA0790000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.javascript"; "path" = "../shared/taobao-refresh.js"; "sourceTree" = "SOURCE_ROOT"; };
         "BB0790000000000000000001" = { "isa" = "PBXBuildFile"; "fileRef" = "AA0790000000000000000001"; };
         "AA0710000000000000000001" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "text.plist.strings"; "name" = "en"; "path" = "en.lproj/Localizable.strings"; "sourceTree" = "<group>"; };
@@ -138,6 +140,7 @@
 			"isa" = "PBXGroup";
 			"children" = (
 				"FFE64F22C8012EA329C390A3",
+                "AA0713000000000000000001",
 				"AA0700000000000000000001",
 				"AA0710000000000000000003",
 				"AA0700000000000000000002",
@@ -184,6 +187,7 @@
 			"buildActionMask" = 2147483647;
 			"files" = (
 				"9FF2EA8E94F5AE97E000DA72",
+                "BB0713000000000000000001",
 				"BB0700000000000000000001",
 				"BB0700000000000000000002",
 				"BB0600000000000000000001",
@@ -264,8 +268,8 @@
 				"INFOPLIST_FILE" = "ParcelHub/Info.plist";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
-				"MARKETING_VERSION" = "0.7.12";
-				"CURRENT_PROJECT_VERSION" = "19";
+				"MARKETING_VERSION" = "0.7.13";
+				"CURRENT_PROJECT_VERSION" = "20";
 				"SWIFT_EMIT_LOC_STRINGS" = "YES";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"LD_RUNPATH_SEARCH_PATHS" = (
@@ -284,8 +288,8 @@
 				"INFOPLIST_FILE" = "ParcelHub/Info.plist";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"TARGETED_DEVICE_FAMILY" = "1,2";
-				"MARKETING_VERSION" = "0.7.12";
-				"CURRENT_PROJECT_VERSION" = "19";
+				"MARKETING_VERSION" = "0.7.13";
+				"CURRENT_PROJECT_VERSION" = "20";
 				"SWIFT_EMIT_LOC_STRINGS" = "YES";
 				"SUPPORTED_PLATFORMS" = "iphoneos iphonesimulator";
 				"LD_RUNPATH_SEARCH_PATHS" = (

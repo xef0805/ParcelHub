@@ -151,6 +151,7 @@ export function coalesceParcels(records) {
     if(index<0){result.push({...p});continue;}
     let merged=result[index];for(const credential of pickupCredentials(p))merged=attachCredential(merged,credential);
     merged.addedAt=Date.parse(merged.addedAt)<Date.parse(p.addedAt)?merged.addedAt:p.addedAt;
+    if(!merged.note)merged.note=p.note;
     merged.awaitingArrival=merged.awaitingArrival===true&&p.awaitingArrival===true;
     if(!merged.arrivedOn&&identityText(merged.station)===identityText(p.station))merged.arrivedOn=p.arrivedOn;
     if(p.collectedAt&&(!merged.collectedAt||Date.parse(p.collectedAt)>=Date.parse(merged.collectedAt))){merged.collectedAt=p.collectedAt;merged.collectionConfirmedBySync=p.collectionConfirmedBySync;}
@@ -209,7 +210,7 @@ export function toggleCollected(state, id) {
 export function filterParcels(state, providers, { collected = false, providerID = 'all', search = '' } = {}) {
   const term = search.trim().toLocaleLowerCase();
   return state.parcels.filter(p => !p.deletedAt && Boolean(p.collectedAt) === collected && (collected || (p.awaitingArrival!==true && (p.manualPendingOverride===true || (pickupCredentials(p).some(c=>c.source.endsWith('-web')) ? pickupCredentials(p).some(c=>c.source.endsWith('-web')&&c.isCurrent) : p.inLatestOfficialSnapshot !== false)))) && (providerID === 'all' || p.providerID === providerID) &&
-    (!term || [p.title, p.station, p.pickupCode, p.trackingNumber, p.carrier, providers.find(s => s.id === p.providerID)?.name || '']
+    (!term || [p.title, p.note || '', p.station, state.stationPreferences?.[p.station]?.alias || '', p.pickupCode, p.trackingNumber, p.carrier, providers.find(s => s.id === p.providerID)?.name || '']
       .join(' ').toLocaleLowerCase().includes(term)));
 }
 
@@ -226,12 +227,14 @@ export function validateSavedState(value, catalog) {
   if (value.identityBindings !== undefined && (!value.identityBindings || Array.isArray(value.identityBindings) || typeof value.identityBindings !== 'object'
       || Object.entries(value.identityBindings).some(([id, binding]) => !ids.has(id) || !binding || !['shareCode', 'launchURL'].includes(binding.kind)
         || typeof binding.value !== 'string' || typeof binding.confirmed !== 'boolean'))) throw new Error('身份码入口配置损坏');
+  if (value.stationPreferences !== undefined && (!value.stationPreferences || Array.isArray(value.stationPreferences) || typeof value.stationPreferences !== 'object'
+      || Object.values(value.stationPreferences).some(p => !p || typeof p.alias !== 'string' || [...p.alias].length > 40 || typeof p.pinned !== 'boolean'))) throw new Error('地点设置损坏');
   const parcelIDs = new Set();
   for (const p of value.parcels) {
     if (!p || !['id', 'title', 'station', 'pickupCode', 'carrier', 'trackingNumber', 'addedAt'].every(k => typeof p[k] === 'string') ||
         !ids.has(p.providerID) || typeof p.isDemo !== 'boolean' || parcelIDs.has(p.id) ||
         !(p.collectedAt === null || typeof p.collectedAt === 'string')) throw new Error('包裹记录损坏');
-    for (const key of ['smsOriginal','smsSender','smsImportedAt','smsFingerprint','deletedAt','arrivedOn']) {
+    for (const key of ['smsOriginal','smsSender','smsImportedAt','smsFingerprint','deletedAt','arrivedOn','note']) {
       if (p[key] !== undefined && p[key] !== null && typeof p[key] !== 'string') throw new Error('短信记录损坏');
     }
     if(p.awaitingArrival!==undefined&&p.awaitingArrival!==null&&typeof p.awaitingArrival!=='boolean')throw new Error('包裹状态损坏');

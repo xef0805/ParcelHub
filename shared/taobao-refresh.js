@@ -91,8 +91,10 @@
         settled = true;pending.delete(id);
         if (id !== serial) return;
         const codes = Array.isArray(response?.ret) ? response.ret.map(String) : [];
+        // MTOP 会自行尝试更新请求 token；最终仍失败也不等于账号已退出。
+        // 普通错误保留记录并允许下轮同步，只有官方会话失效才要求用户登录。
         outcome = codes.some(code => /^SUCCESS(?:::|$)/.test(code)) ? 'ready'
-          : codes.some(code => /SESSION_EXPIRED|TOKEN_EXPIRED|TOKEN_EXOIRED|NEED_LOGIN/.test(code)) ? 'login_required' : 'error';
+          : codes.some(code => /SESSION_EXPIRED|SID_INVALID|AUTH_REJECT|NEED_LOGIN/.test(code)) ? 'login_required' : 'error';
         if (outcome === 'ready') {
           // 与官方 main.js 的请求适配器一致：onReceiveData 取 data.result || data.data。
           // 仅保留旧版直接业务对象兼容，不递归猜测任意字段或解析任意字符串。
